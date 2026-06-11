@@ -1,0 +1,5 @@
+config.env
+backups/
+loadgenerator/files/
+*.bak
+.DS_Store
