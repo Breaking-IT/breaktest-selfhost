@@ -44,8 +44,11 @@ else
 fi
 
 ENV_ARGS=()
+if [ -f version.env ]; then
+  ENV_ARGS+=(--env-file version.env)
+fi
 if [ -f config.env ]; then
-  ENV_ARGS=(--env-file config.env)
+  ENV_ARGS+=(--env-file config.env)
   set -a
   # shellcheck disable=SC1091
   source config.env

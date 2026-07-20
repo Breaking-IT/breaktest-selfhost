@@ -169,10 +169,24 @@ ensure_config() {
     set_env_value HERMES_API_KEY "$(random_hex 32)"
   fi
 
+  if [ ! -f version.env ] && ! grep -q '^BREAKTEST_VERSION=..*' config.env; then
+    echo "Error: version.env not found and BREAKTEST_VERSION is not set in config.env." >&2
+    echo "version.env ships with the bundle and pins the release version. Restore it (git checkout version.env) or re-download the bundle." >&2
+    exit 1
+  fi
+
   set -a
+  if [ -f version.env ]; then
+    # shellcheck disable=SC1091
+    source version.env
+  fi
   # shellcheck disable=SC1091
   source config.env
   set +a
+
+  if grep -q '^BREAKTEST_VERSION=..*' config.env; then
+    echo "Note: BREAKTEST_VERSION override in config.env is active: ${BREAKTEST_VERSION}"
+  fi
 
   if [ -n "${ANTHROPIC_API_KEY:-}" ] || { [ -n "${OPENAI_ACCESS_TOKEN:-}" ] && [ -n "${OPENAI_REFRESH_TOKEN:-}" ]; }; then
     if ! env_truthy "${AI_ASSISTANT_ENABLED:-false}"; then
@@ -207,7 +221,13 @@ ensure_config() {
 ensure_config
 
 PROJECT_NAME="${PROJECT_NAME:-${BREAKTEST_COMPOSE_PROJECT_NAME:-breaktest}}"
-COMPOSE_ARGS=(--env-file config.env -f docker-compose.yaml -p "$PROJECT_NAME")
+COMPOSE_ARGS=(-f docker-compose.yaml -p "$PROJECT_NAME")
+if [ -f version.env ]; then
+  # config.env comes last so its values override the bundle-pinned version.env
+  COMPOSE_ARGS=(--env-file version.env --env-file config.env "${COMPOSE_ARGS[@]}")
+else
+  COMPOSE_ARGS=(--env-file config.env "${COMPOSE_ARGS[@]}")
+fi
 
 if [ "$PULL_IMAGES" = true ]; then
   $DOCKER_COMPOSE "${COMPOSE_ARGS[@]}" pull

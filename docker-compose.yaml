@@ -31,7 +31,7 @@ services:
       - no-new-privileges:true
 
   frontend:
-    image: ${BREAKTEST_IMAGE_REGISTRY:-breakingit}/breaktest-frontend:${BREAKTEST_VERSION:-latest}
+    image: ${BREAKTEST_IMAGE_REGISTRY:-breakingit}/breaktest-frontend:${BREAKTEST_VERSION:?BREAKTEST_VERSION is not set - run via start.sh or pass --env-file version.env}
     restart: unless-stopped
     depends_on:
       - backend
@@ -50,7 +50,7 @@ services:
       - no-new-privileges:true
 
   backend:
-    image: ${BREAKTEST_IMAGE_REGISTRY:-breakingit}/breaktest-backend:${BREAKTEST_VERSION:-latest}
+    image: ${BREAKTEST_IMAGE_REGISTRY:-breakingit}/breaktest-backend:${BREAKTEST_VERSION:?BREAKTEST_VERSION is not set - run via start.sh or pass --env-file version.env}
     restart: unless-stopped
     env_file:
       - config.env
@@ -101,7 +101,7 @@ services:
       - no-new-privileges:true
 
   timescaledb:
-    image: timescale/timescaledb:2.27.2-pg18
+    image: timescale/timescaledb:2.28.2-pg18
     restart: unless-stopped
     environment:
       - TZ=${TZ:-Europe/Amsterdam}
@@ -132,7 +132,7 @@ services:
       - no-new-privileges:true
 
   pg-proxy:
-    image: ${BREAKTEST_IMAGE_REGISTRY:-breakingit}/breaktest-pg-proxy:${BREAKTEST_VERSION:-latest}
+    image: ${BREAKTEST_IMAGE_REGISTRY:-breakingit}/breaktest-pg-proxy:${BREAKTEST_VERSION:?BREAKTEST_VERSION is not set - run via start.sh or pass --env-file version.env}
     restart: unless-stopped
     environment:
       - JWT_SECRET_KEY=${JWT_SECRET_KEY}
@@ -157,7 +157,7 @@ services:
       - no-new-privileges:true
 
   ai-assistant:
-    image: ${BREAKTEST_IMAGE_REGISTRY:-breakingit}/breaktest-ai-assistant:${BREAKTEST_VERSION:-latest}
+    image: ${BREAKTEST_IMAGE_REGISTRY:-breakingit}/breaktest-ai-assistant:${BREAKTEST_VERSION:?BREAKTEST_VERSION is not set - run via start.sh or pass --env-file version.env}
     profiles:
       - ai-assistant
     restart: unless-stopped
@@ -185,7 +185,7 @@ services:
       - no-new-privileges:true
 
   loadgenerator:
-    image: ${BREAKTEST_IMAGE_REGISTRY:-breakingit}/breaktest-loadgenerator:${BREAKTEST_VERSION:-latest}
+    image: ${BREAKTEST_IMAGE_REGISTRY:-breakingit}/breaktest-loadgenerator:${BREAKTEST_VERSION:?BREAKTEST_VERSION is not set - run via start.sh or pass --env-file version.env}
     profiles:
       - loadgenerator
     restart: unless-stopped

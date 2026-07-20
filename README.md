@@ -19,7 +19,6 @@ Run the guided installer:
 
 The installer asks for:
 
-- BreakTest image version
 - Hostname
 - Whether to enable HTTPS with Let's Encrypt
 - HTTP/HTTPS ports
@@ -41,7 +40,7 @@ Then start:
 ./start.sh
 ```
 
-## Images
+## Images and Versions
 
 The compose file pulls BreakTest runtime images from Docker Hub:
 
@@ -53,11 +52,14 @@ breakingit/breaktest-loadgenerator:${BREAKTEST_VERSION}
 breakingit/breaktest-pg-proxy:${BREAKTEST_VERSION}
 ```
 
-Set the version in `config.env`:
+All images of a release share one version. The version is pinned in
+`version.env`, which ships with this bundle and is written by the release
+pipeline — each bundle release always points at the image version it was
+released with. Do not edit `version.env` by hand.
 
-```env
-BREAKTEST_VERSION=1.4.0
-```
+To temporarily run a different version (rollback, release candidate), set
+`BREAKTEST_VERSION` in `config.env`; it takes precedence over `version.env`.
+Remove the override to follow bundle releases again.
 
 ## License
 
@@ -132,10 +134,17 @@ Restart one service:
 ./start.sh -r backend
 ```
 
-Upgrade to the configured image version:
+Upgrade to the latest release (updates the bundle via `git pull`, then pulls
+the images pinned by the new `version.env` and restarts services):
 
 ```bash
 ./upgrade.sh
+```
+
+Pull and restart at the currently pinned version without updating the bundle:
+
+```bash
+./upgrade.sh --no-bundle-update
 ```
 
 Stop:
