@@ -19,12 +19,19 @@ services:
       - --global.sendanonymoususage=false
       - --log.level=${LOG_LEVEL:-INFO}
       - --accesslog=true
+      - --ping=true
     ports:
       - "${HTTP_PORT:-80}:80"
       - "${HTTPS_PORT:-443}:443"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - traefik_acme:/acme.json
+    healthcheck:
+      test: ["CMD", "traefik", "healthcheck", "--ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
     networks:
       - breaktest-network
     security_opt:
@@ -34,8 +41,16 @@ services:
     image: ${BREAKTEST_IMAGE_REGISTRY:-breakingit}/breaktest-frontend:${BREAKTEST_VERSION:?BREAKTEST_VERSION is not set - run via start.sh or pass --env-file version.env}
     restart: unless-stopped
     depends_on:
-      - backend
-      - traefik
+      backend:
+        condition: service_healthy
+      traefik:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-T", "5", "-O", "/dev/null", "http://127.0.0.1:3001/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
     networks:
       - breaktest-network
     labels:
@@ -61,10 +76,20 @@ services:
     volumes:
       - ${BACKUP_PATH:-./backups}:/backups
     depends_on:
-      - mongodb
-      - timescaledb
-      - pg-proxy
-      - traefik
+      mongodb:
+        condition: service_healthy
+      timescaledb:
+        condition: service_healthy
+      pg-proxy:
+        condition: service_started
+      traefik:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:3002/health', timeout=5)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     networks:
       - breaktest-network
     labels:
@@ -95,6 +120,12 @@ services:
     volumes:
       - mongodb_data:/data/db
       - mongodb_logs:/var/log/mongodb
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
     networks:
       - breaktest-network
     security_opt:
@@ -111,6 +142,12 @@ services:
     volumes:
       - timescaledb_data:/var/lib/postgresql
       - ${BACKUP_PATH:-./backups}:/backups
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER:-admin}\" -d postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
     networks:
       - breaktest-network
     command:
@@ -142,7 +179,14 @@ services:
       - MAX_BODY_BYTES=${PG_PROXY_MAX_BODY_BYTES:-67108864}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
     depends_on:
-      - timescaledb
+      timescaledb:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "/pg-proxy", "healthcheck"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
     networks:
       - breaktest-network
     labels:
@@ -176,7 +220,8 @@ services:
       - OPENAI_EMAIL=${OPENAI_EMAIL:-}
       - AI_MODEL=${AI_MODEL:-}
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     networks:
       - breaktest-network
     volumes:
@@ -195,7 +240,8 @@ services:
     security_opt:
       - no-new-privileges:true
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     networks:
       - breaktest-network
     volumes:
