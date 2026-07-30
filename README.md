@@ -122,6 +122,18 @@ Set a static Docker Compose project name in `config.env` to isolate containers a
 BREAKTEST_COMPOSE_PROJECT_NAME=breaktest-selfhost-test
 ```
 
+TimescaleDB uses the project-scoped Docker volume by default. To store its
+database on a dedicated host disk, configure an absolute path in `config.env`:
+
+```env
+POSTGRES_DATA_PATH=/data/timescaledb
+```
+
+Both `start.sh` and `upgrade.sh` preserve this setting and validate/create the
+directory before starting TimescaleDB. Stop the stack before changing this
+setting on an existing installation; changing it selects a different
+PostgreSQL data directory and does not copy data automatically.
+
 Then start an isolated local test stack with its own Docker volumes:
 
 ```bash

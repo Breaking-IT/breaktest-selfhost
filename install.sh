@@ -152,6 +152,7 @@ hermes_api_key=$(random_hex 32)
 http_port=$(prompt_default "HTTP port" "80")
 https_port=$(prompt_default "HTTPS port" "443")
 timezone=$(prompt_default "Timezone" "Europe/Amsterdam")
+postgres_data_path=$(prompt_default "TimescaleDB data path (empty uses a Docker volume)" "")
 
 frontend_rule=$(host_rule "$hostname" 'PathPrefix(`/`)')
 backend_rule=$(host_rule "$hostname" 'PathPrefix(`/api`)')
@@ -205,6 +206,7 @@ POSTGRES_PASSWORD=$(random_hex 24)
 
 MONGO_DATABASE=breakingit
 
+POSTGRES_DATA_PATH=$postgres_data_path
 POSTGRES_MAX_CONNECTIONS=100
 POSTGRES_TIMEZONE=$timezone
 POSTGRES_FSYNC=off

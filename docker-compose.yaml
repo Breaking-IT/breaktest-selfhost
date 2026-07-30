@@ -140,7 +140,7 @@ services:
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
       - TIMESCALEDB_TELEMETRY=off
     volumes:
-      - timescaledb_data:/var/lib/postgresql
+      - ${POSTGRES_DATA_PATH:-timescaledb_data}:/var/lib/postgresql
       - ${BACKUP_PATH:-./backups}:/backups
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER:-admin}\" -d postgres"]
@@ -234,6 +234,11 @@ services:
     profiles:
       - loadgenerator
     restart: unless-stopped
+    # Reap zombie children (Chromium helpers detach and reparent to PID 1)
+    init: true
+    # Real /dev/shm for shared browsers in K6 Browser runs; without it the
+    # agent falls back to slow disk-backed shared memory
+    shm_size: 4gb
     user: "${LOAD_GENERATOR_UID:-1000}:${LOAD_GENERATOR_GID:-1000}"
     cap_drop:
       - ALL

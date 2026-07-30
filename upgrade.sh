@@ -98,6 +98,31 @@ fi
 source config.env
 set +a
 
+prepare_postgres_data_path() {
+  local data_path="${POSTGRES_DATA_PATH:-}"
+  if [ -z "$data_path" ]; then
+    return
+  fi
+  case "$data_path" in
+    /*) ;;
+    *)
+      echo "Error: POSTGRES_DATA_PATH must be an absolute host path: $data_path" >&2
+      exit 1
+      ;;
+  esac
+  if [ -e "$data_path" ] && [ ! -d "$data_path" ]; then
+    echo "Error: POSTGRES_DATA_PATH is not a directory: $data_path" >&2
+    exit 1
+  fi
+  if ! mkdir -p -- "$data_path"; then
+    echo "Error: could not create POSTGRES_DATA_PATH: $data_path" >&2
+    exit 1
+  fi
+  echo "TimescaleDB data: bind mount $data_path"
+}
+
+prepare_postgres_data_path
+
 if grep -q '^BREAKTEST_VERSION=..*' config.env; then
   echo "Warning: BREAKTEST_VERSION override in config.env is active: ${BREAKTEST_VERSION}"
   echo "The bundle pins ${target_version:-unknown}; remove the override from config.env to follow bundle releases."
