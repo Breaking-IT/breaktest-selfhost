@@ -2,6 +2,12 @@
 
 This repository contains the public deployment bundle for running BreakTest from prepared Docker images. It does not contain application source code.
 
+> **Note:** This repository is a generated release artifact. Its content is
+> maintained in the BreakTest source repository (`deploy/selfhost/`) and
+> published here by the release pipeline, one commit per release. Direct
+> commits or pull requests against this repository will be overwritten by the
+> next release — please report issues to BreakTest support instead.
+
 ## Requirements
 
 - Docker Engine
