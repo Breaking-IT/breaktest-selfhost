@@ -13,7 +13,7 @@ This repository contains the public deployment bundle for running BreakTest from
 - Docker Engine
 - Docker Compose v2, or `docker-compose`
 - `openssl`
-- A BreakTest offline license file from BreakTest
+- Network access to `https://breaktest.io` for pairing and startup validation
 
 ## Install
 
@@ -33,12 +33,6 @@ The installer asks for:
 - Whether to configure the AI assistant provider
 
 It writes `config.env` and generates local MongoDB, PostgreSQL, JWT, and credential-encryption secrets.
-
-Paste the issued one-line license key into `config.env`:
-
-```env
-BREAKTEST_LICENSE_KEY=...
-```
 
 Then start:
 
@@ -66,12 +60,6 @@ released with. Do not edit `version.env` by hand.
 To temporarily run a different version (rollback, release candidate), set
 `BREAKTEST_VERSION` in `config.env`; it takes precedence over `version.env`.
 Remove the override to follow bundle releases again.
-
-## License
-
-The backend image contains the trusted public license verification key. The private signing key is not included in this bundle or in the Docker images.
-
-Without a valid license, BreakTest can start, but licensed actions such as starting tests, enabling synthetic monitoring, or using the AI assistant are blocked.
 
 ## Local Load Generator
 
@@ -182,3 +170,8 @@ The public self-host bundle does not deploy Grafana.
 - Keep `config.env` private.
 - Back up Docker volumes and the `backups/` directory before upgrades.
 - Support should be tied to official BreakTest images and a valid license.
+# Licensing
+
+Start BreakTest, sign in as the interactive SuperAdmin, and open **Platform → License**. Pair the installation with your breaktest.io account, approve its short code in `/portal`, create or select a license there, then refresh and activate it in BreakTest. Portal credentials and raw license keys are never stored in Selfhost.
+
+Official Selfhost images contact `https://breaktest.io` at every backend start. If that validation is unavailable, the backend starts restricted and leaves the License page available. A running process that already validated may use its signed runtime lease for at most 72 hours. Restart always requires a fresh online check.

@@ -213,9 +213,6 @@ ensure_config() {
   if profile_contains "${COMPOSE_PROFILES:-}" "loadgenerator"; then
     mkdir -p loadgenerator/files
   fi
-  if [ -z "${BREAKTEST_LICENSE_KEY:-}" ]; then
-    echo "Warning: BREAKTEST_LICENSE_KEY is empty. BreakTest will start, but licensed actions will be blocked until a license key is configured."
-  fi
 }
 
 prepare_postgres_data_path() {

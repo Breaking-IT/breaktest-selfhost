@@ -88,7 +88,6 @@ echo
 registry=$(prompt_default "Docker image registry/namespace" "breakingit")
 compose_project_name=$(prompt_default "Docker Compose project name" "breaktest")
 hostname=$(prompt_default "Hostname users will use to access BreakTest" "localhost")
-license_key=$(prompt_default "BreakTest license key (can be left empty and added later)" "")
 
 if prompt_yes_no "Enable HTTPS with Let's Encrypt" "no"; then
   enable_ssl="true"
@@ -185,8 +184,6 @@ TZ=$timezone
 LOG_LEVEL=INFO
 BACKUP_PATH=./backups
 
-BREAKTEST_LICENSE_KEY=$license_key
-
 AI_ASSISTANT_ENABLED=$ai_assistant_enabled
 HERMES_URL=http://ai-assistant:8080
 HERMES_API_KEY=$hermes_api_key
@@ -257,9 +254,6 @@ esac
 
 echo
 echo "Created $CONFIG_FILE"
-if [ -z "$license_key" ]; then
-  echo "Add your BreakTest license key to BREAKTEST_LICENSE_KEY in config.env before starting tests."
-fi
 if [ "$enable_ssl" = "true" ]; then
   echo "Make sure DNS for $hostname points to this server and ports $http_port/$https_port are reachable."
 fi
