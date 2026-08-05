@@ -61,6 +61,18 @@ To temporarily run a different version (rollback, release candidate), set
 `BREAKTEST_VERSION` in `config.env`; it takes precedence over `version.env`.
 Remove the override to follow bundle releases again.
 
+### Modified k6 component (AGPL-3.0)
+
+The optional BreakTest load generator includes a modified version of
+[Grafana k6](https://github.com/grafana/k6). The complete corresponding source code for
+Breaking-IT's modified k6 component, including the build scripts and the GNU Affero General
+Public License v3.0 text, is publicly available at
+[Breaking-IT/k6](https://github.com/Breaking-IT/k6).
+
+The fork's [`breakingit` branch](https://github.com/Breaking-IT/k6/tree/breakingit) contains
+the current source and immutable source-release tags are published there. This notice applies
+to the k6 component only; it does not change the license terms for other BreakTest components.
+
 ## Local Load Generator
 
 The local load generator is optional. The installer controls it with:
