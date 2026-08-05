@@ -57,4 +57,15 @@ fi
 
 PROJECT_NAME="${PROJECT_NAME:-${BREAKTEST_COMPOSE_PROJECT_NAME:-breaktest}}"
 
-$DOCKER_COMPOSE "${ENV_ARGS[@]}" -f docker-compose.yaml -p "$PROJECT_NAME" down --remove-orphans
+COMPOSE_FILES=(-f docker-compose.yaml)
+case "$(printf '%s' "${ENABLE_SSL:-false}" | tr '[:upper:]' '[:lower:]')" in
+  1|true|yes|on)
+    if [ -f docker-compose.https.yaml ]; then
+      COMPOSE_FILES+=(-f docker-compose.https.yaml)
+    else
+      echo "Warning: HTTPS is enabled, but docker-compose.https.yaml is missing; stopping the base stack only." >&2
+    fi
+    ;;
+esac
+
+$DOCKER_COMPOSE "${ENV_ARGS[@]}" "${COMPOSE_FILES[@]}" -p "$PROJECT_NAME" down --remove-orphans

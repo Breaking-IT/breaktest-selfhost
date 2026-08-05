@@ -85,8 +85,8 @@ fi
 echo "BreakTest self-host installer"
 echo
 
-registry=$(prompt_default "Docker image registry/namespace" "breakingit")
-compose_project_name=$(prompt_default "Docker Compose project name" "breaktest")
+registry="breakingit"
+compose_project_name="breaktest"
 hostname=$(prompt_default "Hostname users will use to access BreakTest" "localhost")
 
 if prompt_yes_no "Enable HTTPS with Let's Encrypt" "no"; then
@@ -108,10 +108,7 @@ if prompt_yes_no "Start a local load generator in this stack" "yes"; then
   append_profile "loadgenerator"
   lg_location=$(prompt_default "Local load generator location label" "Local")
   lg_public="false"
-  if prompt_yes_no "Make this local load generator public to all customers" "yes"; then
-    lg_public="true"
-  fi
-  lg_customer_name=$(prompt_default "Local load generator customer name" "Default")
+  lg_customer_name="Default"
   lg_supports_sm="false"
   if prompt_yes_no "Allow this local load generator to run synthetic monitoring" "yes"; then
     lg_supports_sm="true"
@@ -119,7 +116,7 @@ if prompt_yes_no "Start a local load generator in this stack" "yes"; then
 else
   compose_profiles=""
   lg_location="Local"
-  lg_public="true"
+  lg_public="false"
   lg_customer_name="Default"
   lg_supports_sm="false"
 fi
@@ -131,27 +128,15 @@ openai_refresh_token=""
 openai_token_expires=""
 openai_email=""
 ai_model=""
-if prompt_yes_no "Configure AI assistant provider now" "no"; then
-  if prompt_yes_no "Use Anthropic API key" "yes"; then
-    anthropic_api_key=$(prompt_default "Anthropic API key" "")
-  else
-    openai_access_token=$(prompt_default "OpenAI access token" "")
-    openai_refresh_token=$(prompt_default "OpenAI refresh token" "")
-    openai_token_expires=$(prompt_default "OpenAI token expiry (optional)" "")
-    openai_email=$(prompt_default "OpenAI account email (optional)" "")
-  fi
-  ai_model=$(prompt_default "AI model override (optional)" "")
-fi
-if [ -n "$anthropic_api_key" ] || { [ -n "$openai_access_token" ] && [ -n "$openai_refresh_token" ]; }; then
-  ai_assistant_enabled="true"
-  append_profile "ai-assistant"
-fi
 hermes_api_key=$(random_hex 32)
 
 http_port=$(prompt_default "HTTP port" "80")
-https_port=$(prompt_default "HTTPS port" "443")
+https_port=""
+if [ "$enable_ssl" = "true" ]; then
+  https_port=$(prompt_default "HTTPS port" "443")
+fi
 timezone=$(prompt_default "Timezone" "Europe/Amsterdam")
-postgres_data_path=$(prompt_default "TimescaleDB data path (empty uses a Docker volume)" "")
+postgres_data_path=""
 
 frontend_rule=$(host_rule "$hostname" 'PathPrefix(`/`)')
 backend_rule=$(host_rule "$hostname" 'PathPrefix(`/api`)')
@@ -256,8 +241,5 @@ echo
 echo "Created $CONFIG_FILE"
 if [ "$enable_ssl" = "true" ]; then
   echo "Make sure DNS for $hostname points to this server and ports $http_port/$https_port are reachable."
-fi
-if [ "$ai_assistant_enabled" = "true" ]; then
-  echo "AI assistant profile enabled. Backend access still requires a license with AI assistant enabled."
 fi
 echo "Start BreakTest with: ./start.sh"

@@ -27,12 +27,15 @@ The installer asks for:
 
 - Hostname
 - Whether to enable HTTPS with Let's Encrypt
-- HTTP/HTTPS ports
+- HTTP port, and the HTTPS port only when HTTPS is enabled
 - Whether to start a local load generator
 - Local load generator location label
-- Whether to configure the AI assistant provider
+- Whether that generator may run synthetic monitoring
 
 It writes `config.env` and generates local MongoDB, PostgreSQL, JWT, and credential-encryption secrets.
+Image namespace, Compose project name, single-customer generator scope,
+Docker-managed TimescaleDB storage, and disabled AI are safe installer defaults.
+They remain editable in `config.env` after installation.
 
 Then start:
 
@@ -61,6 +64,18 @@ To temporarily run a different version (rollback, release candidate), set
 `BREAKTEST_VERSION` in `config.env`; it takes precedence over `version.env`.
 Remove the override to follow bundle releases again.
 
+### Modified k6 component (AGPL-3.0)
+
+The optional BreakTest load generator includes a modified version of
+[Grafana k6](https://github.com/grafana/k6). The complete corresponding source code for
+Breaking-IT's modified k6 component, including the build scripts and the GNU Affero General
+Public License v3.0 text, is publicly available at
+[Breaking-IT/k6](https://github.com/Breaking-IT/k6).
+
+The fork's [`breakingit` branch](https://github.com/Breaking-IT/k6/tree/breakingit) contains
+the current source and immutable source-release tags are published there. This notice applies
+to the k6 component only; it does not change the license terms for other BreakTest components.
+
 ## Local Load Generator
 
 The local load generator is optional. The installer controls it with:
@@ -74,13 +89,20 @@ Leave `COMPOSE_PROFILES` empty if this controller should run without a local gen
 The local load generator can be scoped in `config.env`:
 
 ```env
-LOAD_GENERATOR_PUBLIC=true
+LOAD_GENERATOR_PUBLIC=false
 LOAD_GENERATOR_CUSTOMER_NAME=Default
 ```
 
+The guided installer always keeps the local generator private to the default
+customer. Service-provider deployments can change these advanced settings in
+`config.env` after installation.
+
 ## AI Assistant
 
-The AI assistant is optional and starts only when the `ai-assistant` profile is enabled. The installer adds that profile when you configure either `ANTHROPIC_API_KEY` or both `OPENAI_ACCESS_TOKEN` and `OPENAI_REFRESH_TOKEN`.
+The AI assistant is disabled by the guided installer. To enable it later, add
+`ai-assistant` to `COMPOSE_PROFILES`, set `AI_ASSISTANT_ENABLED=true`, and
+configure either `ANTHROPIC_API_KEY` or both `OPENAI_ACCESS_TOKEN` and
+`OPENAI_REFRESH_TOKEN` in `config.env`.
 
 Backend access also requires a BreakTest license with the AI assistant entitlement enabled.
 

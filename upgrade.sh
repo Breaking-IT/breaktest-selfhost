@@ -138,6 +138,17 @@ fi
 
 PROJECT_NAME="${PROJECT_NAME:-${BREAKTEST_COMPOSE_PROJECT_NAME:-breaktest}}"
 
-$DOCKER_COMPOSE "${ENV_ARGS[@]}" -f docker-compose.yaml -p "$PROJECT_NAME" pull
-$DOCKER_COMPOSE "${ENV_ARGS[@]}" -f docker-compose.yaml -p "$PROJECT_NAME" up -d --remove-orphans
-$DOCKER_COMPOSE "${ENV_ARGS[@]}" -f docker-compose.yaml -p "$PROJECT_NAME" ps
+COMPOSE_FILES=(-f docker-compose.yaml)
+case "$(printf '%s' "${ENABLE_SSL:-false}" | tr '[:upper:]' '[:lower:]')" in
+  1|true|yes|on)
+    if [ ! -f docker-compose.https.yaml ]; then
+      echo "Error: docker-compose.https.yaml is required when ENABLE_SSL=true" >&2
+      exit 1
+    fi
+    COMPOSE_FILES+=(-f docker-compose.https.yaml)
+    ;;
+esac
+
+$DOCKER_COMPOSE "${ENV_ARGS[@]}" "${COMPOSE_FILES[@]}" -p "$PROJECT_NAME" pull
+$DOCKER_COMPOSE "${ENV_ARGS[@]}" "${COMPOSE_FILES[@]}" -p "$PROJECT_NAME" up -d --remove-orphans
+$DOCKER_COMPOSE "${ENV_ARGS[@]}" "${COMPOSE_FILES[@]}" -p "$PROJECT_NAME" ps

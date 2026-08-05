@@ -243,6 +243,13 @@ prepare_postgres_data_path
 
 PROJECT_NAME="${PROJECT_NAME:-${BREAKTEST_COMPOSE_PROJECT_NAME:-breaktest}}"
 COMPOSE_ARGS=(-f docker-compose.yaml -p "$PROJECT_NAME")
+if env_truthy "${ENABLE_SSL:-false}"; then
+  if [ ! -f docker-compose.https.yaml ]; then
+    echo "Error: docker-compose.https.yaml is required when ENABLE_SSL=true" >&2
+    exit 1
+  fi
+  COMPOSE_ARGS+=(-f docker-compose.https.yaml)
+fi
 if [ -f version.env ]; then
   # config.env comes last so its values override the bundle-pinned version.env
   COMPOSE_ARGS=(--env-file version.env --env-file config.env "${COMPOSE_ARGS[@]}")
