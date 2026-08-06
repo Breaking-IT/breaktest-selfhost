@@ -2,7 +2,7 @@ name: breaktest
 
 services:
   traefik:
-    image: traefik:v3.7.8
+    image: traefik:v3.7.10
     restart: unless-stopped
     command:
       - --api.dashboard=false
@@ -39,6 +39,8 @@ services:
   frontend:
     image: ${BREAKTEST_IMAGE_REGISTRY:-breakingit}/breaktest-frontend:${BREAKTEST_VERSION:?BREAKTEST_VERSION is not set - run via start.sh or pass --env-file version.env}
     restart: unless-stopped
+    environment:
+      - TZ=${TZ:-UTC}
     depends_on:
       backend:
         condition: service_healthy
@@ -109,11 +111,11 @@ services:
       - no-new-privileges:true
 
   mongodb:
-    image: mongo:8.3.4
+    image: mongo:8.3.7
     restart: unless-stopped
     command: ["mongod", "--logpath", "/var/log/mongodb/mongodb.log"]
     environment:
-      - TZ=${TZ:-Europe/Amsterdam}
+      - TZ=${TZ:-UTC}
       - MONGO_INITDB_ROOT_USERNAME=${MONGO_INITDB_ROOT_USERNAME}
       - MONGO_INITDB_ROOT_PASSWORD=${MONGO_INITDB_ROOT_PASSWORD}
     volumes:
@@ -131,10 +133,10 @@ services:
       - no-new-privileges:true
 
   timescaledb:
-    image: timescale/timescaledb:2.28.3-pg18
+    image: timescale/timescaledb:2.29.1-pg18
     restart: unless-stopped
     environment:
-      - TZ=${TZ:-Europe/Amsterdam}
+      - TZ=${TZ:-UTC}
       - POSTGRES_USER=${POSTGRES_USER}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
       - TIMESCALEDB_TELEMETRY=off
@@ -153,9 +155,9 @@ services:
       - -c
       - max_connections=${POSTGRES_MAX_CONNECTIONS:-100}
       - -c
-      - timezone=${POSTGRES_TIMEZONE:-Europe/Amsterdam}
+      - timezone=${POSTGRES_TIMEZONE:-UTC}
       - -c
-      - log_timezone=${POSTGRES_TIMEZONE:-Europe/Amsterdam}
+      - log_timezone=${POSTGRES_TIMEZONE:-UTC}
       - -c
       - fsync=${POSTGRES_FSYNC:-off}
       - -c
@@ -254,6 +256,7 @@ services:
       - /sys/devices:/host/sys/devices:ro
       - /sys/fs/cgroup:/host/sys/fs/cgroup:ro
     environment:
+      - TZ=${TZ:-UTC}
       - CONTROLLER_HOST=backend
       - CONTROLLER_PORT=3002
       - CONTROLLER_SSL=false

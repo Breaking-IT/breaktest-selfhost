@@ -45,6 +45,40 @@ credential_key() {
   openssl rand -base64 32 | tr '+/' '-_'
 }
 
+detect_timezone() {
+  local candidate="${TZ:-}"
+  local localtime_target=""
+
+  candidate="${candidate#:}"
+  case "$candidate" in
+    /*|*" "*|*":"*) candidate="" ;;
+  esac
+  if [ -z "$candidate" ] && [ -r /etc/timezone ]; then
+    IFS= read -r candidate < /etc/timezone || true
+  fi
+
+  if [ -z "$candidate" ] && [ -L /etc/localtime ]; then
+    localtime_target=$(readlink /etc/localtime 2>/dev/null || true)
+    case "$localtime_target" in
+      */zoneinfo/*) candidate="${localtime_target#*/zoneinfo/}" ;;
+    esac
+  fi
+
+  if [ -z "$candidate" ] && command -v timedatectl >/dev/null 2>&1; then
+    candidate=$(timedatectl show --property=Timezone --value 2>/dev/null || true)
+  fi
+
+  if [ -z "$candidate" ] && command -v systemsetup >/dev/null 2>&1; then
+    candidate=$(systemsetup -gettimezone 2>/dev/null | sed 's/^Time Zone: //' || true)
+  fi
+
+  candidate=$(printf '%s' "$candidate" | tr -d '\r\n')
+  case "$candidate" in
+    ""|"n/a"|"localtime"|/*|*" "*|*":"*) candidate="UTC" ;;
+  esac
+  printf '%s' "$candidate"
+}
+
 write_config() {
   local key="$1"
   local value="$2"
@@ -135,7 +169,8 @@ https_port=""
 if [ "$enable_ssl" = "true" ]; then
   https_port=$(prompt_default "HTTPS port" "443")
 fi
-timezone=$(prompt_default "Timezone" "Europe/Amsterdam")
+detected_timezone=$(detect_timezone)
+timezone=$(prompt_default "Timezone" "$detected_timezone")
 postgres_data_path=""
 
 frontend_rule=$(host_rule "$hostname" 'PathPrefix(`/`)')

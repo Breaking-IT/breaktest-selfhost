@@ -59,6 +59,76 @@ else
   exit 1
 fi
 
+collect_project_images() {
+  local project_name="$1"
+  local container_ids
+
+  container_ids=$(docker ps -aq --filter "label=com.docker.compose.project=${project_name}")
+  if [ -z "$container_ids" ]; then
+    return 0
+  fi
+
+  # Config.Image is the configured tag; Image is the immutable image ID.
+  docker inspect --format '{{.Config.Image}}|{{.Image}}' $container_ids | sort -u
+}
+
+cleanup_superseded_project_images() {
+  local project_name="$1"
+  local old_images="$2"
+  local current_images current_ids all_container_ids referenced_ids
+  local image_ref image_id resolved_id removal_target
+  local removed_count=0
+  local skipped_count=0
+
+  if [ -z "$old_images" ]; then
+    echo "No previous project images found; skipping image cleanup."
+    return 0
+  fi
+
+  current_images=$(collect_project_images "$project_name")
+  current_ids=$(printf '%s\n' "$current_images" | awk -F'|' 'NF >= 2 { print $2 }')
+  all_container_ids=$(docker ps -aq)
+  referenced_ids=""
+  if [ -n "$all_container_ids" ]; then
+    referenced_ids=$(docker inspect --format '{{.Image}}' $all_container_ids | sort -u)
+  fi
+
+  while IFS='|' read -r image_ref image_id; do
+    if [ -z "$image_ref" ] || [ -z "$image_id" ]; then
+      continue
+    fi
+
+    if printf '%s\n' "$current_ids" | grep -Fqx -- "$image_id"; then
+      continue
+    fi
+
+    if printf '%s\n' "$referenced_ids" | grep -Fqx -- "$image_id"; then
+      echo "Kept $image_ref ($image_id); it is referenced by another container."
+      skipped_count=$((skipped_count + 1))
+      continue
+    fi
+
+    # Versioned tags still resolve to the old image. Mutable tags may already
+    # point to the replacement, in which case the immutable old ID is removed.
+    resolved_id=$(docker image inspect "$image_ref" --format '{{.Id}}' 2>/dev/null || true)
+    if [ "$resolved_id" = "$image_id" ]; then
+      removal_target="$image_ref"
+    else
+      removal_target="$image_id"
+    fi
+
+    if docker image rm "$removal_target" >/dev/null; then
+      echo "Removed superseded image $image_ref ($image_id)"
+      removed_count=$((removed_count + 1))
+    else
+      echo "Kept $image_ref ($image_id); it is still referenced by another tag."
+      skipped_count=$((skipped_count + 1))
+    fi
+  done <<< "$old_images"
+
+  echo "Superseded image cleanup: ${removed_count} removed, ${skipped_count} kept."
+}
+
 pinned_version() {
   if [ -f version.env ]; then
     sed -n 's/^BREAKTEST_VERSION=//p' version.env | head -n 1
@@ -149,6 +219,13 @@ case "$(printf '%s' "${ENABLE_SSL:-false}" | tr '[:upper:]' '[:lower:]')" in
     ;;
 esac
 
+OLD_PROJECT_IMAGES=$(collect_project_images "$PROJECT_NAME")
+
 $DOCKER_COMPOSE "${ENV_ARGS[@]}" "${COMPOSE_FILES[@]}" -p "$PROJECT_NAME" pull
 $DOCKER_COMPOSE "${ENV_ARGS[@]}" "${COMPOSE_FILES[@]}" -p "$PROJECT_NAME" up -d --remove-orphans
 $DOCKER_COMPOSE "${ENV_ARGS[@]}" "${COMPOSE_FILES[@]}" -p "$PROJECT_NAME" ps
+
+# Retain the old images if pull/start fails so operators can roll back. Once
+# the replacement stack is running, remove only images superseded by this
+# Compose project; Docker safely refuses images used by other containers.
+cleanup_superseded_project_images "$PROJECT_NAME" "$OLD_PROJECT_IMAGES"

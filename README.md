@@ -28,6 +28,7 @@ The installer asks for:
 - Hostname
 - Whether to enable HTTPS with Let's Encrypt
 - HTTP port, and the HTTPS port only when HTTPS is enabled
+- Service timezone, prefilled from the host machine when detectable
 - Whether to start a local load generator
 - Local load generator location label
 - Whether that generator may run synthetic monitoring
@@ -36,6 +37,9 @@ It writes `config.env` and generates local MongoDB, PostgreSQL, JWT, and credent
 Image namespace, Compose project name, single-customer generator scope,
 Docker-managed TimescaleDB storage, and disabled AI are safe installer defaults.
 They remain editable in `config.env` after installation.
+The configured timezone controls service logs, PostgreSQL defaults, and the
+daily retention cleanup schedule (03:00 in that timezone). Dates in the web
+interface are rendered in each viewer's browser timezone.
 
 Then start:
 
@@ -163,7 +167,8 @@ Restart one service:
 ```
 
 Upgrade to the latest release (updates the bundle via `git pull`, then pulls
-the images pinned by the new `version.env` and restarts services):
+the images pinned by the new `version.env`, restarts services, and removes the
+superseded images after the replacement stack starts successfully):
 
 ```bash
 ./upgrade.sh
