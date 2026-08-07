@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# shellcheck source=config-helpers.sh
+source "$(dirname "$0")/config-helpers.sh"
+
 PROJECT_NAME=""
 
 usage() {
@@ -53,13 +56,14 @@ if [ -f config.env ]; then
   # shellcheck disable=SC1091
   source config.env
   set +a
+  bt_configure_public_runtime config.env false
 fi
 
 PROJECT_NAME="${PROJECT_NAME:-${BREAKTEST_COMPOSE_PROJECT_NAME:-breaktest}}"
 
 COMPOSE_FILES=(-f docker-compose.yaml)
-case "$(printf '%s' "${ENABLE_SSL:-false}" | tr '[:upper:]' '[:lower:]')" in
-  1|true|yes|on)
+case "${BREAKTEST_TLS_MODE:-disabled}" in
+  letsencrypt)
     if [ -f docker-compose.https.yaml ]; then
       COMPOSE_FILES+=(-f docker-compose.https.yaml)
     else

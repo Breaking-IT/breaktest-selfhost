@@ -10,7 +10,7 @@ services:
       - --entrypoints.web.address=:80
       - --entrypoints.websecure.address=:443
       - --certificatesresolvers.letsencrypt.acme.email=${LETS_ENCRYPT_EMAIL:-admin@example.com}
-      - --certificatesresolvers.letsencrypt.acme.storage=/acme.json
+      - --certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json
       - --certificatesresolvers.letsencrypt.acme.httpchallenge=true
       - --certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=web
       - --providers.docker=true
@@ -24,7 +24,7 @@ services:
       - "${HTTP_PORT:-80}:80"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
-      - traefik_acme:/acme.json
+      - traefik_acme:/letsencrypt
     healthcheck:
       test: ["CMD", "traefik", "healthcheck", "--ping"]
       interval: 10s
@@ -240,6 +240,10 @@ services:
     # Real /dev/shm for shared browsers in K6 Browser runs; without it the
     # agent falls back to slow disk-backed shared memory
     shm_size: 4gb
+    # Zero means unlimited. In container mode these parent limits are also
+    # propagated to each JMeter/K6 workload container.
+    cpus: ${LOAD_GENERATOR_CPU_LIMIT:-0}
+    mem_limit: ${LOAD_GENERATOR_MEMORY_LIMIT:-0}
     user: "${LOAD_GENERATOR_UID:-1000}:${LOAD_GENERATOR_GID:-1000}"
     cap_drop:
       - ALL
@@ -264,7 +268,10 @@ services:
       - LOAD_GENERATOR_TYPE=local
       - LOAD_GENERATOR_NAME=${LOAD_GENERATOR_NAME:-loadgenerator}
       - LOAD_GENERATOR_LOCATION=${LOAD_GENERATOR_LOCATION:-Local}
-      - LOAD_GENERATOR_RUN_MODE=${LOAD_GENERATOR_RUN_MODE:-process}
+      - LOAD_GENERATOR_RUN_MODE=${LOAD_GENERATOR_RUN_MODE:-container}
+      - HOST_TESTPLAN_PATH=${HOST_TESTPLAN_PATH:-/files}
+      - CONTAINER_NETWORK=${LOAD_GENERATOR_CONTAINER_NETWORK:-breaktest-network}
+      - LOAD_GENERATOR_WORKLOAD_IMAGE=${BREAKTEST_IMAGE_REGISTRY:-breakingit}/breaktest-loadgenerator:${BREAKTEST_VERSION:?BREAKTEST_VERSION is not set - run via start.sh or pass --env-file version.env}
       - PUBLIC=${LOAD_GENERATOR_PUBLIC:-true}
       - CUSTOMER_NAME=${LOAD_GENERATOR_CUSTOMER_NAME:-Default}
       - SUPPORTS_SYNTHETIC_MONITORING=${LOAD_GENERATOR_SUPPORTS_SYNTHETIC_MONITORING:-false}

@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# shellcheck source=config-helpers.sh
+source "$(dirname "$0")/config-helpers.sh"
+
 CONFIG_FILE="config.env"
 SAMPLE_FILE="config.env.sample"
 
@@ -30,6 +33,18 @@ prompt_yes_no() {
       y|yes) return 0 ;;
       n|no) return 1 ;;
       *) echo "Please answer yes or no." ;;
+    esac
+  done
+}
+
+prompt_tls_mode() {
+  local value
+  while true; do
+    value=$(prompt_default "TLS mode (disabled, letsencrypt, or external)" "disabled")
+    value=$(printf '%s' "$value" | tr '[:upper:]' '[:lower:]')
+    case "$value" in
+      disabled|letsencrypt|external) printf '%s' "$value"; return ;;
+      *) echo "Please enter disabled, letsencrypt, or external." >&2 ;;
     esac
   done
 }
@@ -79,22 +94,6 @@ detect_timezone() {
   printf '%s' "$candidate"
 }
 
-write_config() {
-  local key="$1"
-  local value="$2"
-  printf '%s=%s\n' "$key" "$value" >> "$CONFIG_FILE"
-}
-
-host_rule() {
-  local host="$1"
-  local path_rule="$2"
-  if [ "$host" = "localhost" ] || [ -z "$host" ]; then
-    printf '%s' "$path_rule"
-  else
-    printf 'Host(`%s`) && (%s)' "$host" "$path_rule"
-  fi
-}
-
 append_profile() {
   local profile="$1"
   if [ -z "$compose_profiles" ]; then
@@ -121,19 +120,11 @@ echo
 
 registry="breakingit"
 compose_project_name="breaktest"
-hostname=$(prompt_default "Hostname users will use to access BreakTest" "localhost")
+tls_mode=$(prompt_tls_mode)
 
-if prompt_yes_no "Enable HTTPS with Let's Encrypt" "no"; then
-  enable_ssl="true"
-  entrypoints="websecure"
-  tls="true"
-  cert_resolver="letsencrypt"
+if [ "$tls_mode" = "letsencrypt" ]; then
   email=$(prompt_default "Let's Encrypt email" "admin@example.com")
 else
-  enable_ssl="false"
-  entrypoints="web"
-  tls="false"
-  cert_resolver="letsencrypt"
   email="admin@example.com"
 fi
 
@@ -166,17 +157,36 @@ hermes_api_key=$(random_hex 32)
 
 http_port=$(prompt_default "HTTP port" "80")
 https_port=""
-if [ "$enable_ssl" = "true" ]; then
+if [ "$tls_mode" = "letsencrypt" ]; then
   https_port=$(prompt_default "HTTPS port" "443")
 fi
+case "$tls_mode" in
+  disabled)
+    default_public_url="http://localhost"
+    if [ "$http_port" != "80" ]; then
+      default_public_url="${default_public_url}:$http_port"
+    fi
+    ;;
+  letsencrypt)
+    default_public_url="https://localhost"
+    if [ "$https_port" != "443" ]; then
+      default_public_url="${default_public_url}:$https_port"
+    fi
+    ;;
+  external) default_public_url="https://localhost" ;;
+esac
+public_url=$(prompt_default "Public URL users will use to access BreakTest" "$default_public_url")
+bt_parse_public_url "$public_url"
+public_url="$BT_PUBLIC_URL"
+case "$tls_mode:$BT_PUBLIC_SCHEME" in
+  disabled:http|letsencrypt:https|external:https) ;;
+  disabled:*) echo "Error: disabled TLS mode requires an http:// public URL" >&2; exit 1 ;;
+  letsencrypt:*) echo "Error: letsencrypt TLS mode requires an https:// public URL" >&2; exit 1 ;;
+  external:*) echo "Error: external TLS mode requires an https:// public URL" >&2; exit 1 ;;
+esac
 detected_timezone=$(detect_timezone)
 timezone=$(prompt_default "Timezone" "$detected_timezone")
 postgres_data_path=""
-
-frontend_rule=$(host_rule "$hostname" 'PathPrefix(`/`)')
-backend_rule=$(host_rule "$hostname" 'PathPrefix(`/api`)')
-websocket_rule=$(host_rule "$hostname" 'PathPrefix(`/ws`)')
-pg_proxy_rule=$(host_rule "$hostname" 'PathPrefix(`/ingest`) || PathPrefix(`/upsert`)')
 
 cat > "$CONFIG_FILE" <<EOF
 # BreakTest self-host runtime configuration
@@ -187,18 +197,11 @@ cat > "$CONFIG_FILE" <<EOF
 BREAKTEST_IMAGE_REGISTRY=$registry
 BREAKTEST_COMPOSE_PROJECT_NAME=$compose_project_name
 
-CONTROLLER_HOST=$hostname
-ENABLE_SSL=$enable_ssl
+BREAKTEST_PUBLIC_URL=$public_url
+BREAKTEST_TLS_MODE=$tls_mode
 LETS_ENCRYPT_EMAIL=$email
 HTTP_PORT=$http_port
 HTTPS_PORT=$https_port
-TRAEFIK_ENTRYPOINTS=$entrypoints
-TRAEFIK_TLS=$tls
-TRAEFIK_CERT_RESOLVER=$cert_resolver
-TRAEFIK_FRONTEND_RULE='$frontend_rule'
-TRAEFIK_BACKEND_RULE='$backend_rule'
-TRAEFIK_WEBSOCKET_RULE='$websocket_rule'
-TRAEFIK_PG_PROXY_RULE='$pg_proxy_rule'
 
 TZ=$timezone
 LOG_LEVEL=INFO
@@ -239,7 +242,11 @@ PG_PROXY_MAX_BODY_BYTES=67108864
 LOAD_GENERATOR_TOKEN=local-token
 LOAD_GENERATOR_NAME=loadgenerator
 LOAD_GENERATOR_LOCATION=$lg_location
-LOAD_GENERATOR_RUN_MODE=process
+# Test execution mode: container (preferred for workload separation) or process.
+LOAD_GENERATOR_RUN_MODE=container
+# Optional limit for the load generator and each child test container.
+# LOAD_GENERATOR_CPU_LIMIT=4.0
+# LOAD_GENERATOR_MEMORY_LIMIT=4096m
 LOAD_GENERATOR_PUBLIC=$lg_public
 LOAD_GENERATOR_SUPPORTS_SYNTHETIC_MONITORING=$lg_supports_sm
 LOAD_GENERATOR_CUSTOMER_NAME=$lg_customer_name
@@ -274,7 +281,9 @@ esac
 
 echo
 echo "Created $CONFIG_FILE"
-if [ "$enable_ssl" = "true" ]; then
-  echo "Make sure DNS for $hostname points to this server and ports $http_port/$https_port are reachable."
+if [ "$tls_mode" = "letsencrypt" ]; then
+  echo "Make sure DNS for $BT_PUBLIC_HOST points to this server and ports $http_port/$https_port are reachable."
+elif [ "$tls_mode" = "external" ]; then
+  echo "Configure the upstream TLS proxy for $BT_PUBLIC_HOST to forward to this server on port $http_port."
 fi
 echo "Start BreakTest with: ./start.sh"

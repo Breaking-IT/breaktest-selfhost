@@ -25,8 +25,8 @@ Run the guided installer:
 
 The installer asks for:
 
-- Hostname
-- Whether to enable HTTPS with Let's Encrypt
+- TLS mode (`disabled`, `letsencrypt`, or `external`)
+- The public URL users and remote load generators use to reach BreakTest
 - HTTP port, and the HTTPS port only when HTTPS is enabled
 - Service timezone, prefilled from the host machine when detectable
 - Whether to start a local load generator
@@ -40,6 +40,35 @@ They remain editable in `config.env` after installation.
 The configured timezone controls service logs, PostgreSQL defaults, and the
 daily retention cleanup schedule (03:00 in that timezone). Dates in the web
 interface are rendered in each viewer's browser timezone.
+
+## Public URL and TLS
+
+The externally visible origin and local TLS behavior are configured separately:
+
+```env
+BREAKTEST_PUBLIC_URL=https://office.example.com
+BREAKTEST_TLS_MODE=letsencrypt
+```
+
+`BREAKTEST_PUBLIC_URL` is the canonical origin for application links, secure
+cookies, and external load-generator connections. BreakTest automatically maps
+`https` to `wss` and `http` to `ws`.
+
+`BREAKTEST_TLS_MODE` accepts:
+
+- `disabled`: Traefik serves HTTP on `HTTP_PORT`; the public URL must use `http`.
+- `letsencrypt`: Traefik serves HTTPS and obtains a certificate; the public URL
+  must use `https`, and ports `HTTP_PORT` and `HTTPS_PORT` must be reachable.
+- `external`: an upstream proxy terminates HTTPS and forwards HTTP to
+  `HTTP_PORT`; the public URL must use `https`, and this stack does not publish
+  port 443.
+
+Upgrades automatically migrate legacy `CONTROLLER_HOST`, `ENABLE_SSL`, and
+`ENABLE_HTTPS` settings to the canonical variables and retain a timestamped
+backup of `config.env`. Legacy Traefik values matching the generated defaults
+are removed; customized `TRAEFIK_*` values are preserved and reported during
+startup. Contradictory legacy SSL flags fail with a clear error instead of
+silently selecting an insecure connection.
 
 Then start:
 
@@ -93,9 +122,20 @@ Leave `COMPOSE_PROFILES` empty if this controller should run without a local gen
 The local load generator can be scoped in `config.env`:
 
 ```env
+LOAD_GENERATOR_RUN_MODE=container
+# LOAD_GENERATOR_CPU_LIMIT=4.0
+# LOAD_GENERATOR_MEMORY_LIMIT=4096m
 LOAD_GENERATOR_PUBLIC=false
 LOAD_GENERATOR_CUSTOMER_NAME=Default
 ```
+
+`container` is the preferred run mode because every JMeter or K6 test runs in
+its own workload container. Set `LOAD_GENERATOR_RUN_MODE=process` only when
+Docker socket access is unavailable or direct in-agent execution is required.
+The optional CPU and memory limits cap the load generator; container-mode test
+workloads inherit the same limits. The startup scripts discover the local
+Docker socket from `DOCKER_HOST` or the active Docker context; set
+`LOAD_GENERATOR_DOCKER_SOCKET` only when it must be overridden explicitly.
 
 The guided installer always keeps the local generator private to the default
 customer. Service-provider deployments can change these advanced settings in
@@ -192,7 +232,7 @@ The public self-host bundle does not deploy Grafana.
 
 ## Production Notes
 
-- If HTTPS is enabled, DNS for the configured hostname must point at the server and ports 80/443 must be reachable for Let's Encrypt HTTP-01 validation.
+- In `letsencrypt` mode, DNS for the public URL hostname must point at the server and ports 80/443 must be reachable for Let's Encrypt HTTP-01 validation.
 - Do not mount application source code into runtime containers.
 - Keep `config.env` private.
 - Back up Docker volumes and the `backups/` directory before upgrades.
@@ -201,4 +241,4 @@ The public self-host bundle does not deploy Grafana.
 
 Start BreakTest, sign in as the interactive SuperAdmin, and open **Platform → License**. Pair the installation with your breaktest.io account, approve its short code in `/portal`, create or select a license there, then refresh and activate it in BreakTest. Portal credentials and raw license keys are never stored in Selfhost.
 
-Official Selfhost images contact `https://breaktest.io` at every backend start. If that validation is unavailable, the backend starts restricted and leaves the License page available. A running process that already validated may use its signed runtime lease for at most 72 hours. Restart always requires a fresh online check.
+Official Selfhost images contact `https://breaktest.io` at every backend start. If that check fails because of a connection problem or HTTP 5xx response, BreakTest may continue using its last signed license until 72 hours after the last successful license validation, including across restarts. A definitive license-server rejection (for example, an expired, revoked, or unavailable license) clears that grace immediately. The License page remains available while restricted or operating in grace.

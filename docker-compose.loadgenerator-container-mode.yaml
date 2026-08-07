@@ -1,0 +1,8 @@
+services:
+  loadgenerator:
+    # Container mode starts an isolated JMeter/K6 container per test. Access to
+    # the Docker socket is intentionally omitted when process mode is selected.
+    group_add:
+      - "${LOAD_GENERATOR_DOCKER_GID:-0}"
+    volumes:
+      - "${LOAD_GENERATOR_DOCKER_SOCKET:-/var/run/docker.sock}:/var/run/docker.sock"
