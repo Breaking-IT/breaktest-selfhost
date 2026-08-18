@@ -205,68 +205,7 @@ prepare_postgres_data_path() {
   echo "TimescaleDB data: bind mount $data_path"
 }
 
-resolve_docker_socket() {
-  local socket_path="${LOAD_GENERATOR_DOCKER_SOCKET:-}"
-  local context_host=""
-
-  if [ -z "$socket_path" ]; then
-    case "${DOCKER_HOST:-}" in
-      unix://*) socket_path="${DOCKER_HOST#unix://}" ;;
-    esac
-  fi
-  if [ -z "$socket_path" ]; then
-    context_host=$(docker context inspect --format '{{.Endpoints.docker.Host}}' 2>/dev/null || true)
-    case "$context_host" in
-      unix://*) socket_path="${context_host#unix://}" ;;
-    esac
-  fi
-  printf '%s' "${socket_path:-/var/run/docker.sock}"
-}
-
-prepare_loadgenerator() {
-  local run_mode="${LOAD_GENERATOR_RUN_MODE:-container}"
-  local docker_gid="${LOAD_GENERATOR_DOCKER_GID:-}"
-  local docker_socket=""
-
-  if ! profile_contains "${COMPOSE_PROFILES:-}" "loadgenerator"; then
-    return
-  fi
-
-  case "$run_mode" in
-    container)
-      docker_socket=$(resolve_docker_socket)
-      if [ ! -S "$docker_socket" ]; then
-        echo "Error: LOAD_GENERATOR_RUN_MODE=container requires a local Docker socket; not found: $docker_socket" >&2
-        exit 1
-      fi
-      mkdir -p loadgenerator/files
-      if [ -z "${HOST_TESTPLAN_PATH:-}" ]; then
-        HOST_TESTPLAN_PATH="$(pwd -P)/loadgenerator/files"
-      fi
-      case "$HOST_TESTPLAN_PATH" in
-        /*) ;;
-        *)
-          echo "Error: HOST_TESTPLAN_PATH must be an absolute host path in container mode: $HOST_TESTPLAN_PATH" >&2
-          exit 1
-          ;;
-      esac
-      if [ -z "$docker_gid" ]; then
-        docker_gid=$(stat -c '%g' "$docker_socket" 2>/dev/null || stat -f '%g' "$docker_socket" 2>/dev/null || true)
-      fi
-      LOAD_GENERATOR_DOCKER_SOCKET="$docker_socket"
-      LOAD_GENERATOR_DOCKER_GID="${docker_gid:-0}"
-      export HOST_TESTPLAN_PATH LOAD_GENERATOR_DOCKER_SOCKET LOAD_GENERATOR_DOCKER_GID
-      ;;
-    process) ;;
-    *)
-      echo "Error: LOAD_GENERATOR_RUN_MODE must be 'container' or 'process', got: $run_mode" >&2
-      exit 1
-      ;;
-  esac
-}
-
 prepare_postgres_data_path
-prepare_loadgenerator
 
 if grep -q '^BREAKTEST_VERSION=..*' config.env; then
   echo "Warning: BREAKTEST_VERSION override in config.env is active: ${BREAKTEST_VERSION}"
@@ -286,9 +225,6 @@ LOAD_GENERATOR_CONTAINER_NETWORK="${PROJECT_NAME}_breaktest-network"
 export LOAD_GENERATOR_CONTAINER_NETWORK
 
 COMPOSE_FILES=(-f docker-compose.yaml)
-if profile_contains "${COMPOSE_PROFILES:-}" "loadgenerator" && [ "${LOAD_GENERATOR_RUN_MODE:-container}" = "container" ]; then
-  COMPOSE_FILES+=(-f docker-compose.loadgenerator-container-mode.yaml)
-fi
 case "${BREAKTEST_TLS_MODE:-disabled}" in
   letsencrypt)
     if [ ! -f docker-compose.https.yaml ]; then
@@ -302,6 +238,10 @@ esac
 OLD_PROJECT_IMAGES=$(collect_project_images "$PROJECT_NAME")
 
 $DOCKER_COMPOSE "${ENV_ARGS[@]}" "${COMPOSE_FILES[@]}" -p "$PROJECT_NAME" pull
+bt_prepare_loadgenerator
+if profile_contains "${COMPOSE_PROFILES:-}" "loadgenerator" && [ "${LOAD_GENERATOR_RUN_MODE:-container}" = "container" ]; then
+  COMPOSE_FILES+=(-f docker-compose.loadgenerator-container-mode.yaml)
+fi
 $DOCKER_COMPOSE "${ENV_ARGS[@]}" "${COMPOSE_FILES[@]}" -p "$PROJECT_NAME" up -d --remove-orphans
 $DOCKER_COMPOSE "${ENV_ARGS[@]}" "${COMPOSE_FILES[@]}" -p "$PROJECT_NAME" ps
 

@@ -128,6 +128,7 @@ else
   email="admin@example.com"
 fi
 
+lg_run_mode="container"
 if prompt_yes_no "Start a local load generator in this stack" "yes"; then
   compose_profiles=""
   append_profile "loadgenerator"
@@ -138,6 +139,9 @@ if prompt_yes_no "Start a local load generator in this stack" "yes"; then
   if prompt_yes_no "Allow this local load generator to run synthetic monitoring" "yes"; then
     lg_supports_sm="true"
   fi
+  echo
+  lg_run_mode=$(bt_choose_loadgenerator_run_mode)
+  echo
 else
   compose_profiles=""
   lg_location="Local"
@@ -242,8 +246,10 @@ PG_PROXY_MAX_BODY_BYTES=67108864
 LOAD_GENERATOR_TOKEN=local-token
 LOAD_GENERATOR_NAME=loadgenerator
 LOAD_GENERATOR_LOCATION=$lg_location
-# Test execution mode: container (preferred for workload separation) or process.
-LOAD_GENERATOR_RUN_MODE=container
+# Test execution mode: container (preferred, isolated JMeter/K6 workloads) or
+# process. start.sh verifies the Docker socket mount after pulling the image
+# and falls back to process mode when container mode is not usable.
+LOAD_GENERATOR_RUN_MODE=$lg_run_mode
 # Optional limit for the load generator and each child test container.
 # LOAD_GENERATOR_CPU_LIMIT=4.0
 # LOAD_GENERATOR_MEMORY_LIMIT=4096m
@@ -286,4 +292,9 @@ if [ "$tls_mode" = "letsencrypt" ]; then
 elif [ "$tls_mode" = "external" ]; then
   echo "Configure the upstream TLS proxy for $BT_PUBLIC_HOST to forward to this server on port $http_port."
 fi
+case ",$compose_profiles," in
+  *,loadgenerator,*)
+    echo "Local load generator run mode: $lg_run_mode"
+    ;;
+esac
 echo "Start BreakTest with: ./start.sh"

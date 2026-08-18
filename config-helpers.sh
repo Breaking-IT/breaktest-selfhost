@@ -325,3 +325,204 @@ bt_configure_public_runtime() {
 bt_uses_https_compose() {
   [ "${BREAKTEST_TLS_MODE:-disabled}" = "letsencrypt" ]
 }
+
+bt_profile_contains() {
+  local profiles=",${1:-},"
+  local profile="$2"
+  case "$profiles" in
+    *,"$profile",*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+bt_docker_socket_candidates() {
+  local seen="|"
+  local context_host=""
+
+  _bt_emit_socket_candidate() {
+    local path="$1"
+    [ -n "$path" ] || return 0
+    case "$seen" in
+      *"|$path|"*) return 0 ;;
+    esac
+    seen="${seen}${path}|"
+    printf '%s\n' "$path"
+  }
+
+  # Prefer the daemon-visible socket. Docker Desktop and Colima expose a Unix
+  # socket on the macOS client, but bind-mounts are evaluated inside the VM,
+  # where the engine socket is /var/run/docker.sock.
+  _bt_emit_socket_candidate "${LOAD_GENERATOR_DOCKER_SOCKET:-}"
+  _bt_emit_socket_candidate "/var/run/docker.sock"
+  case "${DOCKER_HOST:-}" in
+    unix://*) _bt_emit_socket_candidate "${DOCKER_HOST#unix://}" ;;
+  esac
+  context_host=$(docker context inspect --format '{{.Endpoints.docker.Host}}' 2>/dev/null || true)
+  case "$context_host" in
+    unix://*) _bt_emit_socket_candidate "${context_host#unix://}" ;;
+  esac
+}
+
+# Only the load generator image is used to probe. The probe runs a shell
+# inside the image, and an arbitrary local image may have no shell at all.
+bt_loadgenerator_probe_image() {
+  local registry="${BREAKTEST_IMAGE_REGISTRY:-breakingit}"
+  local version="${BREAKTEST_VERSION:-}"
+  local lg_image="${registry}/breaktest-loadgenerator:${version}"
+  local image=""
+
+  if [ -n "$version" ] && docker image inspect "$lg_image" >/dev/null 2>&1; then
+    printf '%s' "$lg_image"
+    return 0
+  fi
+  image=$(docker images --format '{{.Repository}}:{{.Tag}}' 2>/dev/null \
+    | awk '!/<none>/ && /breaktest-loadgenerator:/ { print; exit }')
+  if [ -n "$image" ]; then
+    printf '%s' "$image"
+    return 0
+  fi
+  return 1
+}
+
+bt_docker_socket_mount_works() {
+  local socket="$1"
+  local image="$2"
+
+  [ -n "$socket" ] && [ -n "$image" ] || return 1
+  docker image inspect "$image" >/dev/null 2>&1 || return 1
+  # The bind source is resolved by the daemon, not by this shell, so the only
+  # honest check runs inside a container. `docker create` is not enough: it
+  # accepts any source path, and the daemon materialises a directory for a
+  # missing one at start time. That makes create succeed for a macOS client
+  # path that is invisible inside a Docker Desktop or Colima VM, which is
+  # precisely the case this probe exists to catch.
+  docker run --rm --network none --entrypoint /bin/sh \
+    -v "${socket}:/breaktest-socket-probe:ro" "$image" \
+    -c 'test -S /breaktest-socket-probe' >/dev/null 2>&1
+}
+
+bt_select_mountable_docker_socket() {
+  local image="${1:-}"
+  local socket=""
+
+  BT_DOCKER_SOCKET_TRIES=""
+  BT_SELECTED_DOCKER_SOCKET=""
+  while IFS= read -r socket; do
+    [ -n "$socket" ] || continue
+    if [ -n "$BT_DOCKER_SOCKET_TRIES" ]; then
+      BT_DOCKER_SOCKET_TRIES="${BT_DOCKER_SOCKET_TRIES}, ${socket}"
+    else
+      BT_DOCKER_SOCKET_TRIES="$socket"
+    fi
+    if [ -n "$image" ]; then
+      if bt_docker_socket_mount_works "$socket" "$image"; then
+        BT_SELECTED_DOCKER_SOCKET="$socket"
+        return 0
+      fi
+      continue
+    fi
+    # No probe image yet, which is the normal case during install.sh before
+    # the first pull. Accept an explicitly configured socket, or the
+    # daemon-side default that is correct inside Docker Desktop and Colima
+    # VMs. start.sh and upgrade.sh re-run the real probe after pulling.
+    if [ -n "${LOAD_GENERATOR_DOCKER_SOCKET:-}" ] && [ "$socket" = "$LOAD_GENERATOR_DOCKER_SOCKET" ]; then
+      BT_SELECTED_DOCKER_SOCKET="$socket"
+      return 0
+    fi
+    case "$socket" in
+      /var/run/docker.sock|/run/docker.sock)
+        BT_SELECTED_DOCKER_SOCKET="$socket"
+        return 0
+        ;;
+    esac
+  done <<EOF
+$(bt_docker_socket_candidates)
+EOF
+  return 1
+}
+
+bt_container_mode_unavailable_reason() {
+  echo "Container mode is preferred because each JMeter or K6 test runs in its own workload container."
+  echo "It is not usable here because the Docker socket cannot be bind-mounted into a container."
+  if [ -n "${BT_DOCKER_SOCKET_TRIES:-}" ]; then
+    echo "Tried: $BT_DOCKER_SOCKET_TRIES"
+  fi
+  echo "On Docker Desktop or Colima, the mountable socket is usually /var/run/docker.sock inside the VM, not the macOS client path from docker context inspect."
+}
+
+bt_choose_loadgenerator_run_mode() {
+  local probe_image=""
+  local docker_socket=""
+
+  probe_image=$(bt_loadgenerator_probe_image || true)
+  if [ -z "$probe_image" ]; then
+    echo "No local BreakTest load-generator image is available yet; preferring container mode for the initial configuration." >&2
+    echo "start.sh will pull the image, verify the Docker socket mount, and fall back to process mode if needed." >&2
+    printf '%s' "container"
+    return 0
+  fi
+  if bt_select_mountable_docker_socket "$probe_image"; then
+    docker_socket="$BT_SELECTED_DOCKER_SOCKET"
+    echo "Local load generator will use container mode (isolated JMeter/K6 workloads)." >&2
+    echo "Docker socket: $docker_socket" >&2
+    printf '%s' "container"
+    return 0
+  fi
+  bt_container_mode_unavailable_reason >&2
+  echo "Using process mode instead. Tests will run inside the load generator process." >&2
+  printf '%s' "process"
+}
+
+bt_prepare_loadgenerator() {
+  local run_mode="${LOAD_GENERATOR_RUN_MODE:-container}"
+  local docker_gid="${LOAD_GENERATOR_DOCKER_GID:-}"
+  local docker_socket=""
+  local probe_image=""
+
+  if ! bt_profile_contains "${COMPOSE_PROFILES:-}" "loadgenerator"; then
+    return 0
+  fi
+
+  case "$run_mode" in
+    container)
+      probe_image=$(bt_loadgenerator_probe_image || true)
+      if bt_select_mountable_docker_socket "$probe_image"; then
+        docker_socket="$BT_SELECTED_DOCKER_SOCKET"
+        mkdir -p loadgenerator/files
+        if [ -z "${HOST_TESTPLAN_PATH:-}" ]; then
+          HOST_TESTPLAN_PATH="$(pwd -P)/loadgenerator/files"
+        fi
+        case "$HOST_TESTPLAN_PATH" in
+          /*) ;;
+          *)
+            echo "Error: HOST_TESTPLAN_PATH must be an absolute host path in container mode: $HOST_TESTPLAN_PATH" >&2
+            return 1
+            ;;
+        esac
+        if [ -z "$docker_gid" ]; then
+          docker_gid=$(stat -c '%g' "$docker_socket" 2>/dev/null || stat -f '%g' "$docker_socket" 2>/dev/null || true)
+        fi
+        LOAD_GENERATOR_RUN_MODE="container"
+        LOAD_GENERATOR_DOCKER_SOCKET="$docker_socket"
+        LOAD_GENERATOR_DOCKER_GID="${docker_gid:-0}"
+        export HOST_TESTPLAN_PATH LOAD_GENERATOR_RUN_MODE LOAD_GENERATOR_DOCKER_SOCKET LOAD_GENERATOR_DOCKER_GID
+        echo "Load generator mode: container (test files: $HOST_TESTPLAN_PATH, docker socket: $docker_socket)"
+        return 0
+      fi
+      bt_container_mode_unavailable_reason >&2
+      echo "Falling back to process mode so the stack can start." >&2
+      LOAD_GENERATOR_RUN_MODE="process"
+      export LOAD_GENERATOR_RUN_MODE
+      echo "Load generator mode: process"
+      ;;
+    process)
+      LOAD_GENERATOR_RUN_MODE="process"
+      export LOAD_GENERATOR_RUN_MODE
+      echo "Load generator mode: process"
+      ;;
+    *)
+      echo "Error: LOAD_GENERATOR_RUN_MODE must be 'container' or 'process', got: $run_mode" >&2
+      return 1
+      ;;
+  esac
+}

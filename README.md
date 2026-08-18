@@ -33,6 +33,13 @@ The installer asks for:
 - Local load generator location label
 - Whether that generator may run synthetic monitoring
 
+If a local load generator is enabled, container mode is preferred because each
+JMeter or K6 test runs in its own workload container. When a load-generator
+image is already local, the installer probes whether a Docker socket can be
+bind-mounted and selects `process` mode if the probe fails. On a first install,
+`./start.sh` performs that probe immediately after pulling the image and falls
+back to process mode if needed.
+
 It writes `config.env` and generates local MongoDB, PostgreSQL, JWT, and credential-encryption secrets.
 Image namespace, Compose project name, single-customer generator scope,
 Docker-managed TimescaleDB storage, and disabled AI are safe installer defaults.
@@ -123,19 +130,24 @@ The local load generator can be scoped in `config.env`:
 
 ```env
 LOAD_GENERATOR_RUN_MODE=container
+# LOAD_GENERATOR_DOCKER_SOCKET=/var/run/docker.sock
 # LOAD_GENERATOR_CPU_LIMIT=4.0
 # LOAD_GENERATOR_MEMORY_LIMIT=4096m
 LOAD_GENERATOR_PUBLIC=false
 LOAD_GENERATOR_CUSTOMER_NAME=Default
 ```
 
-`container` is the preferred run mode because every JMeter or K6 test runs in
-its own workload container. Set `LOAD_GENERATOR_RUN_MODE=process` only when
-Docker socket access is unavailable or direct in-agent execution is required.
-The optional CPU and memory limits cap the load generator; container-mode test
-workloads inherit the same limits. The startup scripts discover the local
-Docker socket from `DOCKER_HOST` or the active Docker context; set
-`LOAD_GENERATOR_DOCKER_SOCKET` only when it must be overridden explicitly.
+`container` is preferred because every JMeter or K6 test runs in its own
+workload container. When the image is available, the installer probes whether
+a Docker socket can actually be bind-mounted (preferring
+`/var/run/docker.sock` inside Docker Desktop or Colima VMs over the macOS
+client path from `DOCKER_HOST` / `docker context inspect`). On a first install,
+`./start.sh` performs the real probe after pulling the image. It also repeats
+the check on later starts and falls back to process mode if the socket is no
+longer mountable.
+Set `LOAD_GENERATOR_DOCKER_SOCKET` only when the probe must use a specific
+path. The optional CPU and memory limits cap the load generator; container-mode
+test workloads inherit the same limits.
 
 The guided installer always keeps the local generator private to the default
 customer. Service-provider deployments can change these advanced settings in
