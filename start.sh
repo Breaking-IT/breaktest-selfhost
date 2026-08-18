@@ -179,6 +179,7 @@ ensure_config() {
   # shellcheck disable=SC1091
   source config.env
   set +a
+  bt_apply_image_version_overrides config.env
 
   if grep -q '^BREAKTEST_VERSION=..*' config.env; then
     echo "Note: BREAKTEST_VERSION override in config.env is active: ${BREAKTEST_VERSION}"

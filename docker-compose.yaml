@@ -37,7 +37,7 @@ services:
       - no-new-privileges:true
 
   frontend:
-    image: ${BREAKTEST_IMAGE_REGISTRY:-breakingit}/breaktest-frontend:${BREAKTEST_VERSION:?BREAKTEST_VERSION is not set - run via start.sh or pass --env-file version.env}
+    image: ${BREAKTEST_IMAGE_REGISTRY:-breakingit}/breaktest-frontend:${BREAKTEST_FRONTEND_VERSION:-${BREAKTEST_VERSION:?BREAKTEST_VERSION is not set - run via start.sh or pass --env-file version.env}}
     restart: unless-stopped
     environment:
       - TZ=${TZ:-UTC}
@@ -66,7 +66,7 @@ services:
       - no-new-privileges:true
 
   backend:
-    image: ${BREAKTEST_IMAGE_REGISTRY:-breakingit}/breaktest-backend:${BREAKTEST_VERSION:?BREAKTEST_VERSION is not set - run via start.sh or pass --env-file version.env}
+    image: ${BREAKTEST_IMAGE_REGISTRY:-breakingit}/breaktest-backend:${BREAKTEST_BACKEND_VERSION:-${BREAKTEST_VERSION:?BREAKTEST_VERSION is not set - run via start.sh or pass --env-file version.env}}
     restart: unless-stopped
     env_file:
       - config.env
@@ -170,7 +170,7 @@ services:
       - no-new-privileges:true
 
   pg-proxy:
-    image: ${BREAKTEST_IMAGE_REGISTRY:-breakingit}/breaktest-pg-proxy:${BREAKTEST_VERSION:?BREAKTEST_VERSION is not set - run via start.sh or pass --env-file version.env}
+    image: ${BREAKTEST_IMAGE_REGISTRY:-breakingit}/breaktest-pg-proxy:${BREAKTEST_PG_PROXY_VERSION:-${BREAKTEST_VERSION:?BREAKTEST_VERSION is not set - run via start.sh or pass --env-file version.env}}
     restart: unless-stopped
     environment:
       - JWT_SECRET_KEY=${JWT_SECRET_KEY}
@@ -202,7 +202,7 @@ services:
       - no-new-privileges:true
 
   ai-assistant:
-    image: ${BREAKTEST_IMAGE_REGISTRY:-breakingit}/breaktest-ai-assistant:${BREAKTEST_VERSION:?BREAKTEST_VERSION is not set - run via start.sh or pass --env-file version.env}
+    image: ${BREAKTEST_IMAGE_REGISTRY:-breakingit}/breaktest-ai-assistant:${BREAKTEST_AI_ASSISTANT_VERSION:-${BREAKTEST_VERSION:?BREAKTEST_VERSION is not set - run via start.sh or pass --env-file version.env}}
     profiles:
       - ai-assistant
     restart: unless-stopped
@@ -231,7 +231,7 @@ services:
       - no-new-privileges:true
 
   loadgenerator:
-    image: ${BREAKTEST_IMAGE_REGISTRY:-breakingit}/breaktest-loadgenerator:${BREAKTEST_VERSION:?BREAKTEST_VERSION is not set - run via start.sh or pass --env-file version.env}
+    image: ${BREAKTEST_IMAGE_REGISTRY:-breakingit}/breaktest-loadgenerator:${BREAKTEST_LOADGENERATOR_VERSION:-${BREAKTEST_VERSION:?BREAKTEST_VERSION is not set - run via start.sh or pass --env-file version.env}}
     profiles:
       - loadgenerator
     restart: unless-stopped
@@ -271,7 +271,7 @@ services:
       - LOAD_GENERATOR_RUN_MODE=${LOAD_GENERATOR_RUN_MODE:-container}
       - HOST_TESTPLAN_PATH=${HOST_TESTPLAN_PATH:-/files}
       - CONTAINER_NETWORK=${LOAD_GENERATOR_CONTAINER_NETWORK:-breaktest-network}
-      - LOAD_GENERATOR_WORKLOAD_IMAGE=${BREAKTEST_IMAGE_REGISTRY:-breakingit}/breaktest-loadgenerator:${BREAKTEST_VERSION:?BREAKTEST_VERSION is not set - run via start.sh or pass --env-file version.env}
+      - LOAD_GENERATOR_WORKLOAD_IMAGE=${BREAKTEST_IMAGE_REGISTRY:-breakingit}/breaktest-loadgenerator:${BREAKTEST_LOADGENERATOR_VERSION:-${BREAKTEST_VERSION:?BREAKTEST_VERSION is not set - run via start.sh or pass --env-file version.env}}
       - PUBLIC=${LOAD_GENERATOR_PUBLIC:-true}
       - CUSTOMER_NAME=${LOAD_GENERATOR_CUSTOMER_NAME:-Default}
       - SUPPORTS_SYNTHETIC_MONITORING=${LOAD_GENERATOR_SUPPORTS_SYNTHETIC_MONITORING:-false}

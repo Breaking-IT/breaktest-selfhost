@@ -363,11 +363,33 @@ bt_docker_socket_candidates() {
   esac
 }
 
+# Resolve the per-service image versions. Older bundles only contain
+# BREAKTEST_VERSION, so fall back to it. A BREAKTEST_VERSION in config.env is
+# still a global rollback override and intentionally wins over bundle values.
+bt_apply_image_version_overrides() {
+  local config_file="${1:-config.env}"
+  local version="${BREAKTEST_VERSION:-}"
+
+  export BREAKTEST_BACKEND_VERSION="${BREAKTEST_BACKEND_VERSION:-$version}"
+  export BREAKTEST_FRONTEND_VERSION="${BREAKTEST_FRONTEND_VERSION:-$version}"
+  export BREAKTEST_PG_PROXY_VERSION="${BREAKTEST_PG_PROXY_VERSION:-$version}"
+  export BREAKTEST_AI_ASSISTANT_VERSION="${BREAKTEST_AI_ASSISTANT_VERSION:-$version}"
+  export BREAKTEST_LOADGENERATOR_VERSION="${BREAKTEST_LOADGENERATOR_VERSION:-$version}"
+
+  if grep -q '^BREAKTEST_VERSION=..*' "$config_file"; then
+    export BREAKTEST_BACKEND_VERSION="$version"
+    export BREAKTEST_FRONTEND_VERSION="$version"
+    export BREAKTEST_PG_PROXY_VERSION="$version"
+    export BREAKTEST_AI_ASSISTANT_VERSION="$version"
+    export BREAKTEST_LOADGENERATOR_VERSION="$version"
+  fi
+}
+
 # Only the load generator image is used to probe. The probe runs a shell
 # inside the image, and an arbitrary local image may have no shell at all.
 bt_loadgenerator_probe_image() {
   local registry="${BREAKTEST_IMAGE_REGISTRY:-breakingit}"
-  local version="${BREAKTEST_VERSION:-}"
+  local version="${BREAKTEST_LOADGENERATOR_VERSION:-${BREAKTEST_VERSION:-}}"
   local lg_image="${registry}/breaktest-loadgenerator:${version}"
   local image=""
 
