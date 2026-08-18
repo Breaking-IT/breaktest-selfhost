@@ -88,21 +88,21 @@ Then start:
 The compose file pulls BreakTest runtime images from Docker Hub:
 
 ```text
-breakingit/breaktest-backend:${BREAKTEST_VERSION}
-breakingit/breaktest-frontend:${BREAKTEST_VERSION}
-breakingit/breaktest-ai-assistant:${BREAKTEST_VERSION}
-breakingit/breaktest-loadgenerator:${BREAKTEST_VERSION}
-breakingit/breaktest-pg-proxy:${BREAKTEST_VERSION}
+breakingit/breaktest-backend:${BREAKTEST_BACKEND_VERSION}
+breakingit/breaktest-frontend:${BREAKTEST_FRONTEND_VERSION}
+breakingit/breaktest-ai-assistant:${BREAKTEST_AI_ASSISTANT_VERSION}
+breakingit/breaktest-loadgenerator:${BREAKTEST_LOADGENERATOR_VERSION}
+breakingit/breaktest-pg-proxy:${BREAKTEST_PG_PROXY_VERSION}
 ```
 
-All images of a release share one version. The version is pinned in
-`version.env`, which ships with this bundle and is written by the release
-pipeline — each bundle release always points at the image version it was
-released with. Do not edit `version.env` by hand.
+The bundle release version is pinned in `BREAKTEST_VERSION`. Each image also
+has its own version in `version.env`, because unchanged images are reused from
+the previous release instead of being rebuilt and republished. The release
+pipeline writes these values; do not edit `version.env` by hand.
 
 To temporarily run a different version (rollback, release candidate), set
-`BREAKTEST_VERSION` in `config.env`; it takes precedence over `version.env`.
-Remove the override to follow bundle releases again.
+`BREAKTEST_VERSION` in `config.env`; it takes precedence over all per-image
+versions in `version.env`. Remove the override to follow bundle releases again.
 
 ### Modified k6 component (AGPL-3.0)
 

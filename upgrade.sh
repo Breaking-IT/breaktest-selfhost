@@ -17,8 +17,8 @@ Usage: ./upgrade.sh [--project-name name] [--no-bundle-update]
                 Skip updating the bundle itself (git pull); only pull and
                 restart images at the currently pinned version
 
-Upgrades update the bundle first (compose file, scripts, pinned version in
-version.env), then pull the matching images and restart services.
+Upgrades update the bundle first (compose file, scripts, and pinned per-service
+versions in version.env), then pull the matching images and restart services.
 EOF
 }
 
@@ -179,6 +179,7 @@ fi
 # shellcheck disable=SC1091
 source config.env
 set +a
+bt_apply_image_version_overrides config.env
 
 bt_configure_public_runtime config.env
 
