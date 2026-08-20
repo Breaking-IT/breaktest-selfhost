@@ -146,6 +146,16 @@ validate_postgres_tools() {
         || die 'pg_restore is not available in the PostgreSQL container'
 }
 
+backup_config_env() {
+    local output_file="$BACKUP_DIR/config.env"
+
+    log 'Backing up config.env'
+    [[ -f config.env ]] || die 'config.env is missing'
+    [[ -s config.env ]] || die 'config.env is empty'
+    cp config.env "$output_file" || die 'failed to copy config.env into the backup'
+    [[ -s $output_file ]] || die 'config.env backup is empty'
+}
+
 backup_grafana() {
     local volume_name=$1
     local output_file="$BACKUP_DIR/grafana_data.tar.gz"
@@ -348,6 +358,7 @@ run_retention() {
 }
 
 COMPOSE_PROJECT_NAME=${BREAKTEST_COMPOSE_PROJECT_NAME:-$(basename "$(pwd -P)")}
+backup_config_env
 validate_postgres_tools
 backup_grafana "${COMPOSE_PROJECT_NAME}_grafana_data"
 backup_mongodb
@@ -404,6 +415,7 @@ if ((${#DB_NAMES[@]} > 0)); then
     done
 fi
 
+verify_member_once "$PARTIAL_TARBALL" 'config.env'
 if [[ -s "$BACKUP_DIR/grafana_data.tar.gz" ]]; then
     verify_member_once "$PARTIAL_TARBALL" 'grafana_data.tar.gz'
 fi

@@ -49,12 +49,14 @@ The configured timezone controls service logs, PostgreSQL defaults, and the
 daily retention cleanup schedule (03:00 in that timezone). Dates in the web
 interface are rendered in each viewer's browser timezone.
 
-Full backups are written to `BACKUP_PATH`. Fresh generated configurations keep
-the two newest timestamped archives with `LOCAL_BACKUP_RETENTION_COUNT=2`; an
-older `config.env` without that key keeps all existing archives on its first
-run. For Hetzner Storage Box, `BACKUP_INSTALLATION_NAME` is optional for
-backward compatibility: leaving it empty preserves the old remote directory,
-while setting a unique name stores new backups below that name.
+Full backups are written to `BACKUP_PATH`. Each archive includes `config.env`
+alongside MongoDB, PostgreSQL, and Grafana data so restore has the matching
+secrets. Fresh generated configurations keep the two newest timestamped
+archives with `LOCAL_BACKUP_RETENTION_COUNT=2`; an older `config.env` without
+that key keeps all existing archives on its first run. For Hetzner Storage Box,
+`BACKUP_INSTALLATION_NAME` is optional for backward compatibility: leaving it
+empty preserves the old remote directory, while setting a unique name stores
+new backups below that name.
 Run a backup from the bundle directory with `./full_backup.sh`.
 
 ## Public URL and TLS
