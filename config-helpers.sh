@@ -114,6 +114,120 @@ bt_parse_public_url() {
   BT_PUBLIC_URL="${scheme}://${authority}"
 }
 
+bt_is_ipv4() {
+  local ip="$1"
+  local a b c d extra
+  case "$ip" in
+    *[!0-9.]*|'') return 1 ;;
+  esac
+  IFS=. read -r a b c d extra <<EOF
+$ip
+EOF
+  [ -z "${extra:-}" ] || return 1
+  [ -n "${a:-}" ] && [ -n "${b:-}" ] && [ -n "${c:-}" ] && [ -n "${d:-}" ] || return 1
+  [ "$a" -le 255 ] && [ "$b" -le 255 ] && [ "$c" -le 255 ] && [ "$d" -le 255 ]
+}
+
+bt_skip_netif() {
+  case "$1" in
+    lo|lo[0-9]|docker*|br-*|veth*|cni*|flannel*|virbr*|lxc*|awdl*|llw*|utun*|vmnet*|vmenet*|bridge*|tun*|tap*|gif*|stf*|anpi*|cbl*|ap[0-9]*)
+      return 0
+      ;;
+  esac
+  return 1
+}
+
+bt_host_is_letsencrypt_unsuitable() {
+  local host="$1"
+  case "$host" in
+    localhost|localhost.*|*.local)
+      return 0
+      ;;
+  esac
+  bt_is_ipv4 "$host"
+}
+
+bt_list_ipv4_iface_addrs() {
+  local output=""
+
+  if command -v ip >/dev/null 2>&1; then
+    output=$(ip -4 -o addr show scope global 2>/dev/null | awk '{
+      gsub(/\/.*/, "", $4)
+      if ($2 != "" && $4 != "") print $2, $4
+    }')
+  fi
+  if [ -z "$output" ] && command -v ifconfig >/dev/null 2>&1; then
+    current_iface=""
+    output=$(
+      ifconfig 2>/dev/null | while IFS= read -r line; do
+        case "$line" in
+          [A-Za-z]*:*)
+            current_iface="${line%%:*}"
+            current_iface="${current_iface%% *}"
+            ;;
+        esac
+        case "$line" in
+          *[[:space:]]inet[[:space:]]*|*[[:space:]]inet[[:space:]])
+            prev=""
+            ipaddr=""
+            for tok in $line; do
+              if [ "$prev" = "inet" ]; then
+                ipaddr="${tok#addr:}"
+                break
+              fi
+              prev="$tok"
+            done
+            if [ -n "$current_iface" ] && [ -n "$ipaddr" ]; then
+              printf '%s %s\n' "$current_iface" "$ipaddr"
+            fi
+            ;;
+        esac
+      done
+    )
+  fi
+  if [ -n "$output" ]; then
+    printf '%s\n' "$output"
+  fi
+}
+
+bt_detect_emit_host() {
+  local value
+  value=$(printf '%s' "$1" | tr -d '\r\n ')
+  [ -n "$value" ] || return 0
+  case "$value" in
+    localhost) ;;
+    127.*|::1|localhost.*|169.254.*|*.local) return 0 ;;
+  esac
+  case "$BT_DETECT_SEEN" in
+    *"|$value|"*) return 0 ;;
+  esac
+  BT_DETECT_SEEN="${BT_DETECT_SEEN}${value}|"
+  printf '%s\n' "$value"
+}
+
+bt_detect_local_hosts() {
+  local host iface ipaddr
+  BT_DETECT_SEEN="|"
+
+  bt_detect_emit_host "localhost"
+
+  host=$(hostname -f 2>/dev/null || hostname 2>/dev/null || true)
+  host=$(printf '%s' "$host" | tr -d '\r\n ')
+  case "$host" in
+    ''|localhost|localhost.*|'(none)'|*.local) ;;
+    *) bt_detect_emit_host "$host" ;;
+  esac
+
+  while read -r iface ipaddr; do
+    [ -n "${iface:-}" ] && [ -n "${ipaddr:-}" ] || continue
+    bt_skip_netif "$iface" && continue
+    bt_is_ipv4 "$ipaddr" || continue
+    bt_detect_emit_host "$ipaddr"
+  done <<EOF
+$(bt_list_ipv4_iface_addrs </dev/null || true)
+EOF
+}
+
 bt_legacy_tls_mode() {
   local ssl_set=false https_set=false ssl_value=false https_value=false
   if [ "${ENABLE_SSL+x}" = "x" ] && [ -n "${ENABLE_SSL:-}" ]; then

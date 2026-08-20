@@ -92,6 +92,84 @@ set_env_value() {
   fi
 }
 
+check_free_disk_space() {
+  local required_gb="${BREAKTEST_MIN_FREE_DISK_GB:-2}"
+  local disk_path="."
+  local docker_root
+  local available_kib
+  local required_kib
+
+  case "$required_gb" in
+    ''|*[!0-9]*)
+      echo "Error: BREAKTEST_MIN_FREE_DISK_GB must be a whole number: $required_gb" >&2
+      exit 1
+      ;;
+  esac
+  if [ "$required_gb" -lt 1 ]; then
+    echo "Error: BREAKTEST_MIN_FREE_DISK_GB must be at least 1: $required_gb" >&2
+    exit 1
+  fi
+
+  docker_root=$(docker info --format '{{.DockerRootDir}}' 2>/dev/null || true)
+  if [ -n "$docker_root" ] && [ -d "$docker_root" ]; then
+    disk_path="$docker_root"
+  fi
+  available_kib=$(df -Pk "$disk_path" | awk 'NR == 2 { print $4 }')
+  case "$available_kib" in
+    ''|*[!0-9]*)
+      echo "Error: unable to determine free disk space for $disk_path." >&2
+      exit 1
+      ;;
+  esac
+  required_kib=$((required_gb * 1024 * 1024))
+  if [ "$available_kib" -lt "$required_kib" ]; then
+    echo "Error: only $((available_kib / 1024)) MiB is free on $(df -P "$disk_path" | awk 'NR == 2 { print $6 }')." >&2
+    echo "BreakTest needs at least ${required_gb} GiB free before Docker pulls or starts the stack." >&2
+    echo "Remove unused images or move Docker's data root, then run ./start.sh again." >&2
+    exit 1
+  fi
+}
+
+wait_for_required_services() {
+  local timeout_seconds="${BREAKTEST_STARTUP_HEALTH_TIMEOUT_SECONDS:-300}"
+  if ! [[ "$timeout_seconds" =~ ^[1-9][0-9]*$ ]]; then
+    echo "Error: BREAKTEST_STARTUP_HEALTH_TIMEOUT_SECONDS must be a positive whole number: $timeout_seconds" >&2
+    exit 1
+  fi
+  local deadline=$((SECONDS + timeout_seconds))
+  local service container health all_ready
+  local services=(mongodb timescaledb pg-proxy traefik backend frontend)
+
+  echo "Waiting for database, proxy, Traefik, backend, and frontend health checks..."
+  while [ "$SECONDS" -lt "$deadline" ]; do
+    all_ready=true
+    for service in "${services[@]}"; do
+      container=$($DOCKER_COMPOSE "${COMPOSE_ARGS[@]}" ps -q "$service" 2>/dev/null | head -n 1)
+      if [ -z "$container" ]; then
+        all_ready=false
+        continue
+      fi
+      health=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$container" 2>/dev/null || true)
+      if [ "$health" != "healthy" ]; then
+        all_ready=false
+      fi
+    done
+    if [ "$all_ready" = true ]; then
+      echo "Required services are healthy."
+      return 0
+    fi
+    sleep 2
+  done
+
+  echo "Error: the required services did not become healthy within ${timeout_seconds}s." >&2
+  $DOCKER_COMPOSE "${COMPOSE_ARGS[@]}" ps >&2 || true
+  for service in "${services[@]}"; do
+    echo "--- ${service} logs ---" >&2
+    $DOCKER_COMPOSE "${COMPOSE_ARGS[@]}" logs --tail=80 "$service" >&2 || true
+  done
+  exit 1
+}
+
 profile_contains() {
   local profiles=",${1:-},"
   local profile="$2"
@@ -238,6 +316,7 @@ prepare_postgres_data_path() {
 ensure_config
 bt_configure_public_runtime config.env
 prepare_postgres_data_path
+check_free_disk_space
 
 PROJECT_NAME="${PROJECT_NAME:-${BREAKTEST_COMPOSE_PROJECT_NAME:-breaktest}}"
 LOAD_GENERATOR_CONTAINER_NETWORK="${PROJECT_NAME}_breaktest-network"
@@ -259,6 +338,7 @@ fi
 
 if [ "$PULL_IMAGES" = true ]; then
   $DOCKER_COMPOSE "${COMPOSE_ARGS[@]}" pull
+  check_free_disk_space
 fi
 
 bt_prepare_loadgenerator
@@ -275,6 +355,12 @@ if [ -n "$RESTART_SERVICE" ]; then
   $DOCKER_COMPOSE "${COMPOSE_ARGS[@]}" "${UP_ARGS[@]}" --no-deps --force-recreate "$RESTART_SERVICE"
 else
   $DOCKER_COMPOSE "${COMPOSE_ARGS[@]}" "${UP_ARGS[@]}"
+fi
+
+if [ -n "$RESTART_SERVICE" ]; then
+  echo "Skipping full-stack health wait for service restart: $RESTART_SERVICE"
+else
+  wait_for_required_services
 fi
 
 if [ "$SHOW_LOGS" = true ]; then

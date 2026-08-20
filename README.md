@@ -25,20 +25,21 @@ Run the guided installer:
 
 The installer asks for:
 
-- TLS mode (`disabled`, `letsencrypt`, or `external`)
-- The public URL users and remote load generators use to reach BreakTest
-- HTTP port, and the HTTPS port only when HTTPS is enabled
+- HTTP port
+- TLS mode: `disabled`, `letsencrypt`, or `external`. `letsencrypt` asks for
+  the HTTPS port and email address; `external` is for an upstream proxy that
+  terminates HTTPS and forwards HTTP to this stack
+- The public URL users and remote load generators use to reach BreakTest, with
+  detected local IP addresses offered as choices
 - Service timezone, prefilled from the host machine when detectable
-- Whether to start a local load generator
-- Local load generator location label
-- Whether that generator may run synthetic monitoring
 
-If a local load generator is enabled, container mode is preferred because each
-JMeter or K6 test runs in its own workload container. When a load-generator
-image is already local, the installer probes whether a Docker socket can be
-bind-mounted and selects `process` mode if the probe fails. On a first install,
-`./start.sh` performs that probe immediately after pulling the image and falls
-back to process mode if needed.
+A local load generator is always included. It is labeled `Local` and allowed to
+run synthetic monitoring. Container mode is preferred because each JMeter or K6
+test runs in its own workload container. When a load-generator image is already
+local, the installer probes whether a Docker socket can be bind-mounted and
+selects `process` mode if the probe fails. On a first install, `./start.sh`
+performs that probe immediately after pulling the image and falls back to
+process mode if needed.
 
 It writes `config.env` and generates local MongoDB, PostgreSQL, JWT, and credential-encryption secrets.
 Image namespace, Compose project name, single-customer generator scope,
@@ -47,6 +48,14 @@ They remain editable in `config.env` after installation.
 The configured timezone controls service logs, PostgreSQL defaults, and the
 daily retention cleanup schedule (03:00 in that timezone). Dates in the web
 interface are rendered in each viewer's browser timezone.
+
+Full backups are written to `BACKUP_PATH`. Fresh generated configurations keep
+the two newest timestamped archives with `LOCAL_BACKUP_RETENTION_COUNT=2`; an
+older `config.env` without that key keeps all existing archives on its first
+run. For Hetzner Storage Box, `BACKUP_INSTALLATION_NAME` is optional for
+backward compatibility: leaving it empty preserves the old remote directory,
+while setting a unique name stores new backups below that name.
+Run a backup from the bundle directory with `./full_backup.sh`.
 
 ## Public URL and TLS
 
@@ -118,7 +127,8 @@ to the k6 component only; it does not change the license terms for other BreakTe
 
 ## Local Load Generator
 
-The local load generator is optional. The installer controls it with:
+The guided installer always starts a local load generator. Disable it later by
+clearing `COMPOSE_PROFILES`:
 
 ```env
 COMPOSE_PROFILES=loadgenerator
@@ -182,10 +192,28 @@ Start with locally built images instead of pulling from Docker Hub:
 ./start.sh --no-pull -f
 ```
 
+`start.sh` checks for free disk space before Docker pulls or starts the stack,
+waits for the database and backend health checks, and exits with service logs if
+they do not become healthy. The default safety threshold is 2 GiB and can be
+changed with `BREAKTEST_MIN_FREE_DISK_GB`. The startup health-check budget can
+be increased for large installations with
+`BREAKTEST_STARTUP_HEALTH_TIMEOUT_SECONDS` (default: 300 seconds). A
+`./start.sh --restart <service>` operation skips the full-stack health wait.
+
 Set a static Docker Compose project name in `config.env` to isolate containers and volumes:
 
 ```env
 BREAKTEST_COMPOSE_PROJECT_NAME=breaktest-selfhost-test
+```
+
+Removing the self-host directory does not remove Docker named volumes. For a
+deliberate, destructive fresh reset, stop the stack and remove its project
+volumes explicitly (after taking any needed backups):
+
+```bash
+./stop.sh
+docker compose --env-file version.env --env-file config.env \
+  -f docker-compose.yaml -p "${BREAKTEST_COMPOSE_PROJECT_NAME:-breaktest}" down -v
 ```
 
 TimescaleDB uses the project-scoped Docker volume by default. To store its

@@ -7,18 +7,33 @@ source "$(dirname "$0")/config-helpers.sh"
 CONFIG_FILE="config.env"
 SAMPLE_FILE="config.env.sample"
 
+rule() {
+  printf '  %s\n' '----------------------------------------'
+}
+
+indent_echo() {
+  printf '  %s\n' "$1"
+}
+
+section() {
+  echo
+  indent_echo "$1"
+  rule
+}
+
 prompt_default() {
   local prompt="$1"
   local default="$2"
-  local value
-  read -r -p "$prompt [$default]: " value
+  local value=""
+  printf '  %s [%s]: ' "$prompt" "$default" >&2
+  read -r value || true
   printf '%s' "${value:-$default}"
 }
 
 prompt_yes_no() {
   local prompt="$1"
   local default="$2"
-  local value
+  local value=""
   local suffix
   if [ "$default" = "yes" ]; then
     suffix="Y/n"
@@ -27,26 +42,82 @@ prompt_yes_no() {
   fi
 
   while true; do
-    read -r -p "$prompt [$suffix]: " value
+    printf '  %s [%s]: ' "$prompt" "$suffix" >&2
+    read -r value || true
     value="${value:-$default}"
     case "$(printf '%s' "$value" | tr '[:upper:]' '[:lower:]')" in
       y|yes) return 0 ;;
       n|no) return 1 ;;
-      *) echo "Please answer yes or no." ;;
+      *) indent_echo "Please answer yes or no." ;;
     esac
   done
 }
 
-prompt_tls_mode() {
-  local value
+prompt_port() {
+  local prompt="$1"
+  local default="$2"
+  local value=""
   while true; do
-    value=$(prompt_default "TLS mode (disabled, letsencrypt, or external)" "disabled")
-    value=$(printf '%s' "$value" | tr '[:upper:]' '[:lower:]')
+    value=$(prompt_default "$prompt" "$default")
     case "$value" in
-      disabled|letsencrypt|external) printf '%s' "$value"; return ;;
-      *) echo "Please enter disabled, letsencrypt, or external." >&2 ;;
+      ''|*[!0-9]*)
+        indent_echo "Enter a port number between 1 and 65535."
+        continue
+        ;;
     esac
+    if [ "$value" -ge 1 ] && [ "$value" -le 65535 ]; then
+      printf '%s' "$value"
+      return
+    fi
+    indent_echo "Enter a port number between 1 and 65535."
   done
+}
+
+prompt_email() {
+  local prompt="$1"
+  local default="$2"
+  local value=""
+  while true; do
+    value=$(prompt_default "$prompt" "$default")
+    case "$value" in
+      ?*@?*.?*)
+        printf '%s' "$value"
+        return
+        ;;
+    esac
+    indent_echo "Enter an email address, for example admin@example.com."
+  done
+}
+
+origin_for_host() {
+  local scheme="$1"
+  local host="$2"
+  local port="$3"
+  local default_port="$4"
+  if [ -n "$port" ] && [ "$port" != "$default_port" ]; then
+    printf '%s://%s:%s' "$scheme" "$host" "$port"
+  else
+    printf '%s://%s' "$scheme" "$host"
+  fi
+}
+
+normalize_host_or_url() {
+  local raw="$1"
+  local scheme="$2"
+  local port="$3"
+  local default_port="$4"
+  raw=$(printf '%s' "$raw" | tr -d '\r\n ')
+  case "$raw" in
+    http://*|https://*)
+      printf '%s' "${raw%/}"
+      ;;
+    *:*)
+      printf '%s://%s' "$scheme" "$raw"
+      ;;
+    *)
+      origin_for_host "$scheme" "$raw" "$port" "$default_port"
+      ;;
+  esac
 }
 
 random_hex() {
@@ -103,52 +174,158 @@ append_profile() {
   fi
 }
 
+accept_selected_public_url() {
+  local selected="$1"
+  local tls_mode="$2"
+
+  if ! bt_parse_public_url "$selected"; then
+    return 1
+  fi
+  case "$tls_mode:$BT_PUBLIC_SCHEME" in
+    disabled:http|letsencrypt:https|external:https) ;;
+    disabled:*)
+      indent_echo "HTTP-only installs require an http:// public URL."
+      return 1
+      ;;
+    letsencrypt:*|external:*)
+      indent_echo "HTTPS installs require an https:// public URL."
+      return 1
+      ;;
+  esac
+  if [ "$tls_mode" = "letsencrypt" ] && bt_host_is_letsencrypt_unsuitable "$BT_PUBLIC_HOST"; then
+    indent_echo "Let's Encrypt cannot issue a certificate for ${BT_PUBLIC_HOST}."
+    indent_echo "Enter a public DNS hostname that points at this server."
+    return 1
+  fi
+  BT_SELECTED_PUBLIC_URL="$BT_PUBLIC_URL"
+}
+
+prompt_public_url() {
+  local scheme="$1"
+  local listen_port="$2"
+  local default_port="$3"
+  local tls_mode="$4"
+  local hosts=()
+  local host origin choice index custom_index selected=""
+
+  while IFS= read -r host; do
+    [ -n "$host" ] || continue
+    hosts+=("$host")
+  done <<EOF
+$(bt_detect_local_hosts </dev/null)
+EOF
+
+  if [ "${#hosts[@]}" -eq 0 ]; then
+    hosts=("localhost")
+  fi
+
+  if [ "$tls_mode" = "letsencrypt" ]; then
+    local suitable=()
+    for host in "${hosts[@]}"; do
+      bt_host_is_letsencrypt_unsuitable "$host" && continue
+      suitable+=("$host")
+    done
+    hosts=()
+    if [ "${#suitable[@]}" -gt 0 ]; then
+      hosts=("${suitable[@]}")
+    fi
+  fi
+
+  indent_echo "Users and remote load generators will reach BreakTest here."
+  if [ "$tls_mode" = "letsencrypt" ] && [ "${#hosts[@]}" -eq 0 ]; then
+    indent_echo "Let's Encrypt needs a public DNS hostname that points at this server."
+    echo
+    while true; do
+      printf '  Public hostname or URL: ' >&2
+      read -r host || true
+      host=$(printf '%s' "$host" | tr -d '\r\n ')
+      if [ -z "$host" ]; then
+        indent_echo "Enter a DNS hostname, for example breaktest.example.com."
+        continue
+      fi
+      selected=$(normalize_host_or_url "$host" "$scheme" "$listen_port" "$default_port")
+      if accept_selected_public_url "$selected" "$tls_mode"; then
+        return
+      fi
+    done
+  fi
+
+  indent_echo "Choose a detected address, or type a hostname or URL."
+  echo
+  index=1
+  for host in "${hosts[@]}"; do
+    origin=$(origin_for_host "$scheme" "$host" "$listen_port" "$default_port")
+    printf '    %s) %s\n' "$index" "$origin"
+    index=$((index + 1))
+  done
+  custom_index="$index"
+  printf '    %s) Enter a different hostname or URL\n' "$custom_index"
+  echo
+
+  while true; do
+    printf '  Select [1], or type a hostname: ' >&2
+    read -r choice || true
+    choice="${choice:-1}"
+    case "$choice" in
+      ''|*[!0-9]*)
+        selected=$(normalize_host_or_url "$choice" "$scheme" "$listen_port" "$default_port")
+        ;;
+      *)
+        if [ "$choice" -ge 1 ] && [ "$choice" -lt "$custom_index" ]; then
+          host="${hosts[$((choice - 1))]}"
+          selected=$(origin_for_host "$scheme" "$host" "$listen_port" "$default_port")
+        elif [ "$choice" -eq "$custom_index" ]; then
+          printf '  Hostname or URL: ' >&2
+          read -r host || true
+          host=$(printf '%s' "$host" | tr -d '\r\n ')
+          if [ -z "$host" ]; then
+            indent_echo "Enter a hostname, IP address, or full URL."
+            continue
+          fi
+          selected=$(normalize_host_or_url "$host" "$scheme" "$listen_port" "$default_port")
+        else
+          indent_echo "Choose a number between 1 and ${custom_index}, or type a hostname."
+          continue
+        fi
+        ;;
+    esac
+
+    if accept_selected_public_url "$selected" "$tls_mode"; then
+      return
+    fi
+  done
+}
+
 if [ ! -f "$SAMPLE_FILE" ]; then
   echo "Error: $SAMPLE_FILE not found. Run this script from the self-host bundle directory." >&2
   exit 1
 fi
 
+echo
+indent_echo "BreakTest self-host installer"
+rule
+echo
+indent_echo "This writes config.env and generates local database and JWT secrets."
+indent_echo "Press Enter to keep the suggested value in [brackets]."
+
 if [ -f "$CONFIG_FILE" ]; then
-  if ! prompt_yes_no "$CONFIG_FILE already exists. Overwrite it" "no"; then
-    echo "Keeping existing $CONFIG_FILE"
+  echo
+  indent_echo "$CONFIG_FILE already exists."
+  if ! prompt_yes_no "Overwrite it" "no"; then
+    indent_echo "Keeping existing $CONFIG_FILE"
+    echo
     exit 0
   fi
 fi
 
-echo "BreakTest self-host installer"
-echo
-
 registry="breakingit"
 compose_project_name="breaktest"
-tls_mode=$(prompt_tls_mode)
-
-if [ "$tls_mode" = "letsencrypt" ]; then
-  email=$(prompt_default "Let's Encrypt email" "admin@example.com")
-else
-  email="admin@example.com"
-fi
-
-lg_run_mode="container"
-if prompt_yes_no "Start a local load generator in this stack" "yes"; then
-  compose_profiles=""
-  append_profile "loadgenerator"
-  lg_location=$(prompt_default "Local load generator location label" "Local")
-  lg_public="false"
-  lg_customer_name="Default"
-  lg_supports_sm="false"
-  if prompt_yes_no "Allow this local load generator to run synthetic monitoring" "yes"; then
-    lg_supports_sm="true"
-  fi
-  echo
-  lg_run_mode=$(bt_choose_loadgenerator_run_mode)
-  echo
-else
-  compose_profiles=""
-  lg_location="Local"
-  lg_public="false"
-  lg_customer_name="Default"
-  lg_supports_sm="false"
-fi
+compose_profiles=""
+append_profile "loadgenerator"
+lg_location="Local"
+lg_public="false"
+lg_customer_name="Default"
+lg_supports_sm="true"
 
 ai_assistant_enabled="false"
 anthropic_api_key=""
@@ -159,38 +336,59 @@ openai_email=""
 ai_model=""
 hermes_api_key=$(random_hex 32)
 
-http_port=$(prompt_default "HTTP port" "80")
+section "1/3  Network"
+
+http_port=$(prompt_port "HTTP port" "80")
 https_port=""
-if [ "$tls_mode" = "letsencrypt" ]; then
-  https_port=$(prompt_default "HTTPS port" "443")
+email="admin@example.com"
+tls_mode="disabled"
+while true; do
+  tls_mode_input=$(prompt_default "Enable HTTPS / TLS (disabled, letsencrypt, or external)" "disabled")
+  tls_mode_normalized=$(printf '%s' "$tls_mode_input" | tr '[:upper:]' '[:lower:]')
+  case "$tls_mode_normalized" in
+    y|yes|letsencrypt)
+      tls_mode="letsencrypt"
+      https_port=$(prompt_port "HTTPS port" "443")
+      email=$(prompt_email "Let's Encrypt email" "admin@example.com")
+      break
+      ;;
+    n|no|disabled|"")
+      tls_mode="disabled"
+      break
+      ;;
+    external)
+      tls_mode="external"
+      break
+      ;;
+    *)
+      indent_echo "Please enter disabled, letsencrypt, or external."
+      ;;
+  esac
+done
+
+section "2/3  Public URL"
+
+public_scheme="http"
+public_listen_port="$http_port"
+public_default_port="80"
+if [ "$tls_mode" = "letsencrypt" ] || [ "$tls_mode" = "external" ]; then
+  public_scheme="https"
+  public_listen_port="${https_port:-443}"
+  public_default_port="443"
 fi
-case "$tls_mode" in
-  disabled)
-    default_public_url="http://localhost"
-    if [ "$http_port" != "80" ]; then
-      default_public_url="${default_public_url}:$http_port"
-    fi
-    ;;
-  letsencrypt)
-    default_public_url="https://localhost"
-    if [ "$https_port" != "443" ]; then
-      default_public_url="${default_public_url}:$https_port"
-    fi
-    ;;
-  external) default_public_url="https://localhost" ;;
-esac
-public_url=$(prompt_default "Public URL users will use to access BreakTest" "$default_public_url")
-bt_parse_public_url "$public_url"
-public_url="$BT_PUBLIC_URL"
-case "$tls_mode:$BT_PUBLIC_SCHEME" in
-  disabled:http|letsencrypt:https|external:https) ;;
-  disabled:*) echo "Error: disabled TLS mode requires an http:// public URL" >&2; exit 1 ;;
-  letsencrypt:*) echo "Error: letsencrypt TLS mode requires an https:// public URL" >&2; exit 1 ;;
-  external:*) echo "Error: external TLS mode requires an https:// public URL" >&2; exit 1 ;;
-esac
+prompt_public_url "$public_scheme" "$public_listen_port" "$public_default_port" "$tls_mode"
+public_url="$BT_SELECTED_PUBLIC_URL"
+
+section "3/3  Timezone"
+
 detected_timezone=$(detect_timezone)
+indent_echo "Used for service logs, PostgreSQL, and scheduled maintenance."
 timezone=$(prompt_default "Timezone" "$detected_timezone")
 postgres_data_path=""
+
+echo
+indent_echo "Configuring the local load generator..."
+lg_run_mode=$(bt_choose_loadgenerator_run_mode)
 
 cat > "$CONFIG_FILE" <<EOF
 # BreakTest self-host runtime configuration
@@ -202,6 +400,9 @@ BREAKTEST_IMAGE_REGISTRY=$registry
 BREAKTEST_COMPOSE_PROJECT_NAME=$compose_project_name
 
 BREAKTEST_PUBLIC_URL=$public_url
+# Optional name shown for this installation in the customer portal. When left
+# empty, pairing uses the hostname from BREAKTEST_PUBLIC_URL.
+BREAKTEST_INSTALLATION_NAME=
 BREAKTEST_TLS_MODE=$tls_mode
 LETS_ENCRYPT_EMAIL=$email
 HTTP_PORT=$http_port
@@ -210,6 +411,16 @@ HTTPS_PORT=$https_port
 TZ=$timezone
 LOG_LEVEL=INFO
 BACKUP_PATH=./backups
+BREAKTEST_MIN_FREE_DISK_GB=2
+BREAKTEST_STARTUP_HEALTH_TIMEOUT_SECONDS=300
+LOCAL_BACKUP_RETENTION_COUNT=2
+HETZNER_STORAGE_ENABLED=false
+BACKUP_INSTALLATION_NAME=
+HETZNER_STORAGE_HOST=
+HETZNER_STORAGE_USER=
+HETZNER_STORAGE_PATH=backups
+HETZNER_STORAGE_SSH_PORT=23
+HETZNER_STORAGE_SSH_KEY=
 
 AI_ASSISTANT_ENABLED=$ai_assistant_enabled
 HERMES_URL=http://ai-assistant:8080
@@ -279,22 +490,28 @@ GCP_SERVICE_ACCOUNT_KEY=
 EOF
 
 mkdir -p backups
-case ",$compose_profiles," in
-  *,loadgenerator,*) 
-  mkdir -p loadgenerator/files
-  ;;
-esac
+mkdir -p loadgenerator/files
 
 echo
-echo "Created $CONFIG_FILE"
-if [ "$tls_mode" = "letsencrypt" ]; then
-  echo "Make sure DNS for $BT_PUBLIC_HOST points to this server and ports $http_port/$https_port are reachable."
-elif [ "$tls_mode" = "external" ]; then
-  echo "Configure the upstream TLS proxy for $BT_PUBLIC_HOST to forward to this server on port $http_port."
+indent_echo "Created $CONFIG_FILE"
+rule
+indent_echo "Public URL : $public_url"
+indent_echo "TLS        : $tls_mode"
+indent_echo "HTTP port  : $http_port"
+if [ -n "$https_port" ]; then
+  indent_echo "HTTPS port : $https_port"
 fi
-case ",$compose_profiles," in
-  *,loadgenerator,*)
-    echo "Local load generator run mode: $lg_run_mode"
-    ;;
-esac
-echo "Start BreakTest with: ./start.sh"
+indent_echo "Timezone   : $timezone"
+indent_echo "Load gen   : $lg_run_mode mode, synthetic monitoring enabled"
+if [ "$tls_mode" = "letsencrypt" ]; then
+  echo
+  indent_echo "Make sure DNS for $BT_PUBLIC_HOST points to this server"
+  indent_echo "and ports $http_port/$https_port are reachable."
+elif [ "$tls_mode" = "external" ]; then
+  echo
+  indent_echo "Configure the upstream TLS proxy for $BT_PUBLIC_HOST"
+  indent_echo "to forward to this server on port $http_port."
+fi
+echo
+indent_echo "Start BreakTest with:  ./start.sh"
+echo

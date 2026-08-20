@@ -2,7 +2,7 @@ name: breaktest
 
 services:
   traefik:
-    image: traefik:v3.7.10
+    image: traefik:v3.7.11
     restart: unless-stopped
     command:
       - --api.dashboard=false
@@ -111,7 +111,7 @@ services:
       - no-new-privileges:true
 
   mongodb:
-    image: mongo:8.3.7
+    image: mongo:8.3.8
     restart: unless-stopped
     command: ["mongod", "--logpath", "/var/log/mongodb/mongodb.log"]
     environment:
@@ -122,18 +122,22 @@ services:
       - mongodb_data:/data/db
       - mongodb_logs:/var/log/mongodb
     healthcheck:
-      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      # An unauthenticated ping only proves that mongod is listening.  The
+      # official image can leave a partially initialized database behind when
+      # the host runs out of disk during first boot, so verify the credentials
+      # that the backend will actually use.
+      test: ["CMD-SHELL", "mongosh --quiet --host 127.0.0.1 --username \"$${MONGO_INITDB_ROOT_USERNAME}\" --password \"$${MONGO_INITDB_ROOT_PASSWORD}\" --authenticationDatabase admin --eval \"db.adminCommand({ping: 1}).ok\" | grep -q '^1$'"]
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 20s
+      start_period: 30s
     networks:
       - breaktest-network
     security_opt:
       - no-new-privileges:true
 
   timescaledb:
-    image: timescale/timescaledb:2.29.1-pg18
+    image: timescale/timescaledb:2.29.2-pg18
     restart: unless-stopped
     environment:
       - TZ=${TZ:-UTC}
