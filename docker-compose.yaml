@@ -9,6 +9,7 @@ services:
       - --api.insecure=false
       - --entrypoints.web.address=:80
       - --entrypoints.websecure.address=:443
+      - --entrypoints.web.forwardedheaders.trustedips=${TRAEFIK_TRUSTED_PROXY_IPS:-127.0.0.1/32,::1/128}
       - --certificatesresolvers.letsencrypt.acme.email=${LETS_ENCRYPT_EMAIL:-admin@example.com}
       - --certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json
       - --certificatesresolvers.letsencrypt.acme.httpchallenge=true
@@ -281,6 +282,66 @@ services:
       - SUPPORTS_SYNTHETIC_MONITORING=${LOAD_GENERATOR_SUPPORTS_SYNTHETIC_MONITORING:-false}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
 
+  grafana:
+    image: grafana/grafana:13.1.2
+    profiles:
+      - grafana
+    user: "472:472"
+    restart: unless-stopped
+    environment:
+      - TZ=${TZ:-UTC}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-}
+      - GF_AUTH_PROXY_ENABLED=false
+      - GF_AUTH_DISABLE_LOGIN_FORM=false
+      - GF_LIVE_MAX_CONNECTIONS=0
+      - GF_SERVER_ENABLE_GZIP=true
+      - GF_SECURITY_ALLOW_EMBEDDING=false
+      - GF_SERVER_ROOT_URL=${BREAKTEST_PUBLIC_URL:-http://localhost}/grafana/
+      - GF_SERVER_SERVE_FROM_SUB_PATH=true
+      - GF_DASHBOARDS_MIN_REFRESH_INTERVAL=1s
+      - GF_DASHBOARD_CLEANUP_INTERVAL=8760h
+      - GF_DATABASE_TYPE=sqlite3
+      - GF_DATABASE_PATH=/var/lib/grafana/grafana.db
+      - GF_ANALYTICS_REPORTING_ENABLED=false
+      - GF_ANALYTICS_CHECK_FOR_UPDATES=false
+      - GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES=false
+      - BT_POSTGRES_HOST=${POSTGRES_HOST:-timescaledb}
+      - BT_POSTGRES_PORT=${POSTGRES_PORT:-5432}
+      - BT_POSTGRES_USER=${GRAFANA_MONITORING_DB_USER:-graf_breaktest_monitoring_ro}
+      - BT_POSTGRES_PASSWORD=${GRAFANA_MONITORING_DB_PASSWORD:-}
+    volumes:
+      - grafana_data:/var/lib/grafana:rw
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+      traefik:
+        condition: service_started
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-T", "5", "-O", "/dev/null", "http://127.0.0.1:3000/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - breaktest-network
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.breaktest-grafana.rule=${TRAEFIK_GRAFANA_RULE:-PathPrefix(`/grafana`)}
+      - traefik.http.routers.breaktest-grafana.entrypoints=${TRAEFIK_ENTRYPOINTS:-web}
+      - traefik.http.routers.breaktest-grafana.priority=80
+      - traefik.http.routers.breaktest-grafana.tls=${TRAEFIK_TLS:-false}
+      - traefik.http.routers.breaktest-grafana.tls.certresolver=${TRAEFIK_CERT_RESOLVER:-letsencrypt}
+      - traefik.http.routers.breaktest-grafana.middlewares=breaktest-grafana-ipallowlist
+      - traefik.http.middlewares.breaktest-grafana-ipallowlist.ipallowlist.sourcerange=${TRAEFIK_GRAFANA_IP_ALLOWLIST:-127.0.0.1/32,::1/128}
+      - traefik.http.middlewares.breaktest-grafana-ipallowlist.ipallowlist.ipstrategy.depth=${TRAEFIK_GRAFANA_IP_STRATEGY_DEPTH:-0}
+      - traefik.http.services.breaktest-grafana.loadbalancer.server.port=3000
+    security_opt:
+      - no-new-privileges:true
+
 networks:
   breaktest-network:
     driver: bridge
@@ -291,3 +352,4 @@ volumes:
   timescaledb_data:
   traefik_acme:
   hermes_data:
+  grafana_data:

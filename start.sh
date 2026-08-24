@@ -139,6 +139,9 @@ wait_for_required_services() {
   local deadline=$((SECONDS + timeout_seconds))
   local service container health all_ready
   local services=(mongodb timescaledb pg-proxy traefik backend frontend)
+  if profile_contains "${COMPOSE_PROFILES:-}" "grafana"; then
+    services+=(grafana)
+  fi
 
   echo "Waiting for database, proxy, Traefik, backend, and frontend health checks..."
   while [ "$SECONDS" -lt "$deadline" ]; do
@@ -284,6 +287,8 @@ ensure_config() {
     fi
   fi
 
+  bt_configure_grafana_profile config.env
+
   mkdir -p backups
   if profile_contains "${COMPOSE_PROFILES:-}" "loadgenerator"; then
     mkdir -p loadgenerator/files
@@ -367,4 +372,7 @@ if [ "$SHOW_LOGS" = true ]; then
   $DOCKER_COMPOSE "${COMPOSE_ARGS[@]}" logs -f
 else
   $DOCKER_COMPOSE "${COMPOSE_ARGS[@]}" ps
+  if profile_contains "${COMPOSE_PROFILES:-}" "grafana"; then
+    echo "Grafana is available at ${BREAKTEST_PUBLIC_URL%/}/grafana"
+  fi
 fi

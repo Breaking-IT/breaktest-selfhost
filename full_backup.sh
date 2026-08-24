@@ -2,6 +2,11 @@
 
 set -Eeuo pipefail
 
+# Backups contain config.env and therefore installation secrets. Keep all
+# staging files, logs, and published archives private regardless of the
+# invoking user's default umask.
+umask 077
+
 if [[ -f config.env ]]; then
     # shellcheck disable=SC1091
     source config.env
@@ -24,10 +29,21 @@ MONITORING_DB_NAME=${MONITORING_DB_NAME:-breaktest_monitoring}
 # retention count.
 LOCAL_BACKUP_RETENTION_COUNT=${LOCAL_BACKUP_RETENTION_COUNT:-0}
 MAX_PARALLEL=${MAX_PARALLEL:-3}
+BACKUP_DISK_HEADROOM_GB=${BACKUP_DISK_HEADROOM_GB:-5}
 BACKUP_INSTALLATION_NAME=${BACKUP_INSTALLATION_NAME:-}
 
 if ! [[ $LOCAL_BACKUP_RETENTION_COUNT =~ ^[0-9]+$ ]]; then
     printf '%s\n' 'ERROR: LOCAL_BACKUP_RETENTION_COUNT must be a non-negative integer' >&2
+    exit 1
+fi
+
+if ! [[ $MAX_PARALLEL =~ ^[1-9][0-9]*$ ]]; then
+    printf '%s\n' 'ERROR: MAX_PARALLEL must be a positive integer' >&2
+    exit 1
+fi
+
+if ! [[ $BACKUP_DISK_HEADROOM_GB =~ ^[0-9]+$ ]]; then
+    printf '%s\n' 'ERROR: BACKUP_DISK_HEADROOM_GB must be a non-negative integer' >&2
     exit 1
 fi
 
@@ -41,13 +57,15 @@ fi
 mkdir -p "$BACKUP_PATH"
 BACKUP_PATH=$(cd "$BACKUP_PATH" && pwd -P)
 LOG_FILE="$BACKUP_PATH/backup.log"
+touch "$LOG_FILE"
+chmod 600 "$LOG_FILE"
 
 log() {
-    printf '%s\n' "$*" | tee -a "$LOG_FILE"
+    printf '%s %s\n' "$(date '+%Y-%m-%dT%H:%M:%S%z')" "$*" | tee -a "$LOG_FILE"
 }
 
 die() {
-    printf '%s\n' "ERROR: $*" | tee -a "$LOG_FILE" >&2
+    printf '%s %s\n' "$(date '+%Y-%m-%dT%H:%M:%S%z')" "ERROR: $*" | tee -a "$LOG_FILE" >&2
     exit 1
 }
 
@@ -80,6 +98,8 @@ else
 fi
 
 TIMESTAMP=${BACKUP_TIMESTAMP:-$(date +%Y%m%d_%H%M%S)}
+[[ $TIMESTAMP =~ ^[0-9]{8}_[0-9]{6}$ ]] \
+    || die 'BACKUP_TIMESTAMP must use YYYYMMDD_HHMMSS format'
 BACKUP_BASENAME="full_backup_${TIMESTAMP}"
 BACKUP_DIR="$BACKUP_PATH/$BACKUP_BASENAME"
 PARTIAL_TARBALL="$BACKUP_PATH/${BACKUP_BASENAME}.tar.partial"
@@ -88,17 +108,67 @@ LATEST_LINK="$BACKUP_PATH/full_backup_latest.tar"
 LATEST_TEMP="$BACKUP_PATH/.full_backup_latest.tar.$$"
 LOCK_FILE="$BACKUP_PATH/.full_backup.lock"
 LOCK_DIR="$BACKUP_PATH/.full_backup.lock.d"
+ARCHIVE_LOCK_FILE="$BACKUP_PATH/.full_backup.archive.lock.$$"
+ARCHIVE_LOCK_DIR="$BACKUP_PATH/.full_backup.archive.lock.d.$$"
 LOCK_MODE=
 RUN_SUCCESS=0
+DATABASE_BACKUPS_STARTED=0
+DATABASE_SESSIONS_TERMINATED=0
+DB_PIDS=()
+BACKUP_APP_PREFIX="breaktest_backup_${TIMESTAMP}_$$"
+
+terminate_backup_database_sessions() {
+    (( DATABASE_BACKUPS_STARTED == 1 )) || return 0
+    (( DATABASE_SESSIONS_TERMINATED == 0 )) || return 0
+    DATABASE_SESSIONS_TERMINATED=1
+
+    # PGAPPNAME is assigned per dump below. Targeting this unique prefix avoids
+    # terminating application queries or another installation's backup.
+    docker exec -e PGPASSWORD="$POSTGRES_PASS" "$POSTGRES_CONTAINER" psql \
+        -X -h "$POSTGRES_HOST" -p "$POSTGRES_PORT" -U "$POSTGRES_USER" \
+        -d postgres -v ON_ERROR_STOP=1 -At \
+        -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE application_name LIKE '${BACKUP_APP_PREFIX}%' AND pid <> pg_backend_pid();" \
+        >/dev/null 2>&1 || true
+}
+
+stop_database_workers() {
+    local pid
+
+    terminate_backup_database_sessions
+    for pid in "${DB_PIDS[@]:-}"; do
+        [[ -n $pid ]] || continue
+        kill -TERM "$pid" 2>/dev/null || true
+        if command -v pkill >/dev/null 2>&1; then
+            pkill -TERM -P "$pid" 2>/dev/null || true
+        fi
+    done
+    for pid in "${DB_PIDS[@]:-}"; do
+        [[ -n $pid ]] || continue
+        wait "$pid" 2>/dev/null || true
+    done
+    DB_PIDS=()
+}
+
+handle_interrupt() {
+    local signal_name=$1
+    trap - HUP INT TERM
+    log "Backup interrupted by $signal_name; stopping database dump workers"
+    stop_database_workers
+    exit 130
+}
 
 cleanup() {
     local exit_code=$?
 
     if (( RUN_SUCCESS == 0 )); then
+        stop_database_workers
         [[ -z ${BACKUP_DIR:-} || ! -e $BACKUP_DIR ]] || rm -rf "$BACKUP_DIR"
         [[ -z ${PARTIAL_TARBALL:-} || ! -e $PARTIAL_TARBALL ]] || rm -f "$PARTIAL_TARBALL"
         [[ -z ${LATEST_TEMP:-} || ! -e $LATEST_TEMP ]] || rm -f "$LATEST_TEMP"
     fi
+
+    [[ ! -e $ARCHIVE_LOCK_FILE ]] || rm -f "$ARCHIVE_LOCK_FILE"
+    [[ ! -d $ARCHIVE_LOCK_DIR ]] || rmdir "$ARCHIVE_LOCK_DIR" 2>/dev/null || true
 
     if [[ $LOCK_MODE == mkdir ]]; then
         [[ ! -d $LOCK_DIR ]] || rmdir "$LOCK_DIR" 2>/dev/null || true
@@ -127,6 +197,9 @@ acquire_lock() {
 
 acquire_lock
 trap cleanup EXIT
+trap 'handle_interrupt HUP' HUP
+trap 'handle_interrupt INT' INT
+trap 'handle_interrupt TERM' TERM
 
 # Only remove timestamp-shaped partial archives older than 48 hours.
 find "$BACKUP_PATH" -maxdepth 1 -type f \
@@ -136,6 +209,7 @@ find "$BACKUP_PATH" -maxdepth 1 -type f \
 if ! mkdir "$BACKUP_DIR"; then
     die "backup directory already exists: $BACKUP_DIR"
 fi
+chmod 700 "$BACKUP_DIR"
 
 log "Starting full backup: $TIMESTAMP"
 
@@ -189,38 +263,103 @@ backup_mongodb() {
 backup_database() {
     local dbname=$1
     local dump_file="$BACKUP_DIR/${dbname}_backup.dump"
+    local pg_dump_error="$BACKUP_DIR/.${dbname}.pg_dump.stderr"
+    local pg_restore_error="$BACKUP_DIR/.${dbname}.pg_restore.stderr"
+    local started_at finished_at duration_seconds dump_size exit_code
+    local app_name="${BACKUP_APP_PREFIX}_${dbname}"
 
     log "Backing up database: $dbname"
-    if ! docker exec -e PGPASSWORD="$POSTGRES_PASS" "$POSTGRES_CONTAINER" pg_dump \
+    started_at=$(date +%s)
+    set +e
+    docker exec -e PGPASSWORD="$POSTGRES_PASS" -e PGAPPNAME="$app_name" \
+        "$POSTGRES_CONTAINER" pg_dump \
         -h "$POSTGRES_HOST" -p "$POSTGRES_PORT" -U "$POSTGRES_USER" \
-        -d "$dbname" -F c >"$dump_file" 2>/dev/null; then
+        -d "$dbname" -F c >"$dump_file" 2>"$pg_dump_error"
+    exit_code=$?
+    set -e
+    if (( exit_code != 0 )); then
         rm -f "$dump_file"
-        log "pg_dump failed: $dbname"
+        log "pg_dump failed: $dbname (exit $exit_code)"
+        log_command_error "$dbname" pg_dump "$pg_dump_error"
+        rm -f "$pg_dump_error"
         return 1
     fi
+    log_command_error "$dbname" pg_dump "$pg_dump_error"
+    rm -f "$pg_dump_error"
     if [[ ! -s $dump_file ]]; then
         rm -f "$dump_file"
         log "Database dump is empty: $dbname"
         return 1
     fi
-    if ! docker exec -i "$POSTGRES_CONTAINER" pg_restore --list \
-        <"$dump_file" >/dev/null 2>&1; then
+
+    set +e
+    docker exec -i "$POSTGRES_CONTAINER" pg_restore --list \
+        <"$dump_file" >/dev/null 2>"$pg_restore_error"
+    exit_code=$?
+    set -e
+    if (( exit_code != 0 )); then
         rm -f "$dump_file"
-        log "pg_restore validation failed: $dbname"
+        log "pg_restore validation failed: $dbname (exit $exit_code)"
+        log_command_error "$dbname" pg_restore "$pg_restore_error"
+        rm -f "$pg_restore_error"
         return 1
     fi
+    log_command_error "$dbname" pg_restore "$pg_restore_error"
+    rm -f "$pg_restore_error"
+
+    if ! append_database_dump "$dbname"; then
+        rm -f "$dump_file"
+        log "Failed to append database dump: $dbname"
+        return 1
+    fi
+
+    dump_size=$(wc -c <"$dump_file" | tr -d '[:space:]')
+    rm -f "$dump_file" || {
+        log "Failed to remove temporary database dump: $dbname"
+        return 1
+    }
+    finished_at=$(date +%s)
+    duration_seconds=$((finished_at - started_at))
+    log "Database backup completed: $dbname (${dump_size} bytes, ${duration_seconds}s)"
+}
+
+log_command_error() {
+    local dbname=$1 command_name=$2 error_file=$3 line
+
+    [[ -s $error_file ]] || return 0
+    while IFS= read -r line || [[ -n $line ]]; do
+        log "$command_name[$dbname]: $line"
+    done < <(tail -n 50 "$error_file")
+}
+
+append_database_dump_unlocked() {
+    local dbname=$1
+    local archive_member="$BACKUP_BASENAME/${dbname}_backup.dump"
+
+    tar --append --file="$PARTIAL_TARBALL" -C "$BACKUP_PATH" \
+        "$archive_member" >/dev/null 2>&1
 }
 
 append_database_dump() {
     local dbname=$1
     local dump_file="$BACKUP_DIR/${dbname}_backup.dump"
-    local archive_member="$BACKUP_BASENAME/${dbname}_backup.dump"
+    local status=0
 
-    [[ -s $dump_file ]] || die "database dump is missing or empty: $dbname"
-    tar --append --file="$PARTIAL_TARBALL" -C "$BACKUP_PATH" \
-        "$archive_member" >/dev/null 2>&1 \
-        || die "failed to append database dump: $dbname"
-    rm -f "$dump_file" || die "failed to remove temporary database dump: $dbname"
+    [[ -s $dump_file ]] || return 1
+    if command -v flock >/dev/null 2>&1; then
+        (
+            exec 8>"$ARCHIVE_LOCK_FILE"
+            flock -x 8
+            append_database_dump_unlocked "$dbname"
+        ) || status=$?
+    else
+        while ! mkdir "$ARCHIVE_LOCK_DIR" 2>/dev/null; do
+            sleep 0.1
+        done
+        append_database_dump_unlocked "$dbname" || status=$?
+        rmdir "$ARCHIVE_LOCK_DIR" 2>/dev/null || true
+    fi
+    return "$status"
 }
 
 get_dynamic_db_list() {
@@ -308,6 +447,88 @@ ensure_database() {
     register_database "$dbname"
 }
 
+database_size_bytes() {
+    local dbname=$1
+
+    docker exec -e PGPASSWORD="$POSTGRES_PASS" "$POSTGRES_CONTAINER" psql \
+        -X -h "$POSTGRES_HOST" -p "$POSTGRES_PORT" -U "$POSTGRES_USER" \
+        -d "$dbname" -v ON_ERROR_STOP=1 -At \
+        -c 'SELECT pg_database_size(current_database());' 2>/dev/null
+}
+
+preflight_disk_space() {
+    local dbname size_bytes
+    local total_database_bytes=0
+    local available_kb available_bytes required_bytes
+    local gib=$((1024 * 1024 * 1024))
+
+    [[ -n $POSTGRES_PASS ]] || die 'PostgreSQL password is not configured'
+    for dbname in "${DB_NAMES[@]}"; do
+        size_bytes=$(database_size_bytes "$dbname") \
+            || die "failed to determine database size: $dbname"
+        [[ $size_bytes =~ ^[0-9]+$ ]] \
+            || die "invalid database size returned for $dbname"
+        total_database_bytes=$((total_database_bytes + size_bytes))
+    done
+
+    available_kb=$(df -Pk "$BACKUP_PATH" | awk 'NR == 2 { print $4 }') \
+        || die 'failed to determine available backup disk space'
+    [[ $available_kb =~ ^[0-9]+$ ]] \
+        || die 'invalid available disk space reported for backup path'
+    available_bytes=$((available_kb * 1024))
+    required_bytes=$((total_database_bytes + BACKUP_DISK_HEADROOM_GB * gib))
+
+    log "Disk preflight: $(((available_bytes + gib - 1) / gib)) GiB available; $(((required_bytes + gib - 1) / gib)) GiB required (${BACKUP_DISK_HEADROOM_GB} GiB headroom)"
+    (( available_bytes >= required_bytes )) \
+        || die 'insufficient free disk space for full backup'
+}
+
+wait_for_one_database_worker() {
+    local completed_pid='' status=0 pid
+    local -a remaining_pids=()
+
+    if (( BASH_VERSINFO[0] > 5 || (BASH_VERSINFO[0] == 5 && BASH_VERSINFO[1] >= 1) )); then
+        if wait -n -p completed_pid "${DB_PIDS[@]}"; then
+            status=0
+        else
+            status=$?
+        fi
+    else
+        # Portable wait-any fallback for older Bash versions. jobs -pr only
+        # reports workers that are still running, so a completed worker can be
+        # reaped without blocking behind the first long-running dump.
+        local running_pid is_running
+        while [[ -z $completed_pid ]]; do
+            for pid in "${DB_PIDS[@]}"; do
+                is_running=0
+                for running_pid in $(jobs -pr); do
+                    if [[ $running_pid == "$pid" ]]; then
+                        is_running=1
+                        break
+                    fi
+                done
+                if (( is_running == 0 )); then
+                    completed_pid=$pid
+                    break
+                fi
+            done
+            [[ -n $completed_pid ]] || sleep 0.1
+        done
+        if wait "$completed_pid"; then
+            status=0
+        else
+            status=$?
+        fi
+    fi
+
+    [[ -n $completed_pid ]] || return 1
+    for pid in "${DB_PIDS[@]}"; do
+        [[ $pid == "$completed_pid" ]] || remaining_pids+=("$pid")
+    done
+    DB_PIDS=("${remaining_pids[@]+"${remaining_pids[@]}"}")
+    return "$status"
+}
+
 verify_member_once() {
     local archive=$1
     local member=$2
@@ -360,11 +581,6 @@ run_retention() {
 COMPOSE_PROJECT_NAME=${BREAKTEST_COMPOSE_PROJECT_NAME:-$(basename "$(pwd -P)")}
 backup_config_env
 validate_postgres_tools
-backup_grafana "${COMPOSE_PROJECT_NAME}_grafana_data"
-backup_mongodb
-
-tar -cf "$PARTIAL_TARBALL" -C "$BACKUP_PATH" "$BACKUP_BASENAME" \
-    >/dev/null 2>&1 || die 'failed to create partial tar archive'
 
 DB_NAMES=()
 if [[ ${DB_LIST+x} == x ]]; then
@@ -384,36 +600,36 @@ fi
 # The shared monitoring database is not part of the customer list, but it is
 # part of the installation backup and must be included explicitly.
 ensure_database "$MONITORING_DB_NAME"
+preflight_disk_space
+
+backup_grafana "${COMPOSE_PROJECT_NAME}_grafana_data"
+backup_mongodb
+
+tar -cf "$PARTIAL_TARBALL" -C "$BACKUP_PATH" "$BACKUP_BASENAME" \
+    >/dev/null 2>&1 || die 'failed to create partial tar archive'
 
 DB_FAILURE=0
-DB_PIDS=()
 if ((${#DB_NAMES[@]} > 0)); then
+    DATABASE_BACKUPS_STARTED=1
     for dbname in "${DB_NAMES[@]}"; do
-        backup_database "$dbname" &
-        DB_PIDS+=("$!")
-
         while ((${#DB_PIDS[@]} >= MAX_PARALLEL)); do
-            if ! wait "${DB_PIDS[0]}"; then
+            if ! wait_for_one_database_worker; then
                 DB_FAILURE=1
             fi
-            DB_PIDS=("${DB_PIDS[@]:1}")
         done
+        backup_database "$dbname" &
+        DB_PIDS+=("$!")
     done
 
-    for db_index in "${!DB_PIDS[@]}"; do
-        if ! wait "${DB_PIDS[$db_index]}"; then
+    while ((${#DB_PIDS[@]} > 0)); do
+        if ! wait_for_one_database_worker; then
             DB_FAILURE=1
         fi
     done
+    DATABASE_BACKUPS_STARTED=0
 fi
 
 ((DB_FAILURE == 0)) || die 'one or more database backups failed'
-
-if ((${#DB_NAMES[@]} > 0)); then
-    for dbname in "${DB_NAMES[@]}"; do
-        append_database_dump "$dbname"
-    done
-fi
 
 verify_member_once "$PARTIAL_TARBALL" 'config.env'
 if [[ -s "$BACKUP_DIR/grafana_data.tar.gz" ]]; then
@@ -432,6 +648,8 @@ tar -tf "$PARTIAL_TARBALL" >/dev/null 2>&1 \
 
 mv -f "$PARTIAL_TARBALL" "$FINAL_TARBALL" \
     || die 'failed to publish timestamped backup archive'
+chmod 600 "$FINAL_TARBALL" \
+    || die 'failed to secure timestamped backup archive permissions'
 
 if [[ ${HETZNER_STORAGE_ENABLED:-false} == true ]]; then
     [[ -n ${HETZNER_STORAGE_HOST:-} && -n ${HETZNER_STORAGE_USER:-} ]] \
@@ -445,6 +663,8 @@ if [[ ${HETZNER_STORAGE_ENABLED:-false} == true ]]; then
         REMOTE_BACKUP_PATH="${HETZNER_STORAGE_PATH%/}"
         log 'WARNING: BACKUP_INSTALLATION_NAME is unset; using the legacy Hetzner backup path.'
     fi
+    REMOTE_FINAL_PATH="$REMOTE_BACKUP_PATH/$(basename "$FINAL_TARBALL")"
+    REMOTE_PARTIAL_PATH="$REMOTE_BACKUP_PATH/.$(basename "$FINAL_TARBALL").partial.$$"
 
     if [[ -n ${HETZNER_STORAGE_SSH_KEY:-} ]]; then
         RSYNC_SSH_CMD="ssh -p $HETZNER_STORAGE_SSH_PORT -i $HETZNER_STORAGE_SSH_KEY"
@@ -452,17 +672,22 @@ if [[ ${HETZNER_STORAGE_ENABLED:-false} == true ]]; then
             "$HETZNER_STORAGE_USER@$HETZNER_STORAGE_HOST" \
             "mkdir -p \"$REMOTE_BACKUP_PATH\"" >/dev/null 2>&1 \
             || die 'failed to create Hetzner backup directory'
+        REMOTE_SSH_ARGS=(-p "$HETZNER_STORAGE_SSH_PORT" -i "$HETZNER_STORAGE_SSH_KEY")
     else
         RSYNC_SSH_CMD="ssh -p $HETZNER_STORAGE_SSH_PORT"
         ssh -p "$HETZNER_STORAGE_SSH_PORT" \
             "$HETZNER_STORAGE_USER@$HETZNER_STORAGE_HOST" \
             "mkdir -p \"$REMOTE_BACKUP_PATH\"" >/dev/null 2>&1 \
             || die 'failed to create Hetzner backup directory'
+        REMOTE_SSH_ARGS=(-p "$HETZNER_STORAGE_SSH_PORT")
     fi
 
     rsync -a -e "$RSYNC_SSH_CMD" "$FINAL_TARBALL" \
-        "$HETZNER_STORAGE_USER@$HETZNER_STORAGE_HOST:$REMOTE_BACKUP_PATH/" \
+        "$HETZNER_STORAGE_USER@$HETZNER_STORAGE_HOST:$REMOTE_PARTIAL_PATH" \
         >/dev/null 2>&1 || die 'failed to upload backup to Hetzner Storage Box'
+    ssh "${REMOTE_SSH_ARGS[@]}" "$HETZNER_STORAGE_USER@$HETZNER_STORAGE_HOST" \
+        "mv -f \"$REMOTE_PARTIAL_PATH\" \"$REMOTE_FINAL_PATH\" && chmod 600 \"$REMOTE_FINAL_PATH\"" \
+        >/dev/null 2>&1 || die 'failed to publish backup on Hetzner Storage Box'
 fi
 
 ln -s "$(basename "$FINAL_TARBALL")" "$LATEST_TEMP" \

@@ -182,6 +182,7 @@ set +a
 bt_apply_image_version_overrides config.env
 
 bt_configure_public_runtime config.env
+bt_configure_grafana_profile config.env
 
 prepare_postgres_data_path() {
   local data_path="${POSTGRES_DATA_PATH:-}"

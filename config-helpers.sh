@@ -284,12 +284,15 @@ bt_configure_public_runtime() {
   local configured_backend_rule="${TRAEFIK_BACKEND_RULE:-}"
   local configured_websocket_rule="${TRAEFIK_WEBSOCKET_RULE:-}"
   local configured_pg_proxy_rule="${TRAEFIK_PG_PROXY_RULE:-}"
+  local configured_grafana_rule="${TRAEFIK_GRAFANA_RULE:-}"
   local generated_entrypoints generated_tls generated_cert_resolver
   local generated_frontend_rule generated_backend_rule
   local generated_websocket_rule generated_pg_proxy_rule
+  local generated_grafana_rule
   local preserve_entrypoints=false preserve_tls=false preserve_cert_resolver=false
   local preserve_frontend_rule=false preserve_backend_rule=false
   local preserve_websocket_rule=false preserve_pg_proxy_rule=false
+  local preserve_grafana_rule=false
   local custom_traefik_keys=""
 
   if [ "${ENABLE_SSL+x}" = "x" ] || [ "${ENABLE_HTTPS+x}" = "x" ]; then
@@ -357,11 +360,13 @@ bt_configure_public_runtime() {
     generated_backend_rule='PathPrefix(`/api`)'
     generated_websocket_rule='PathPrefix(`/ws`)'
     generated_pg_proxy_rule='PathPrefix(`/ingest`) || PathPrefix(`/upsert`)'
+    generated_grafana_rule='PathPrefix(`/grafana`)'
   else
     generated_frontend_rule="Host(\`$BT_PUBLIC_HOST\`) && (PathPrefix(\`/\`))"
     generated_backend_rule="Host(\`$BT_PUBLIC_HOST\`) && (PathPrefix(\`/api\`))"
     generated_websocket_rule="Host(\`$BT_PUBLIC_HOST\`) && (PathPrefix(\`/ws\`))"
     generated_pg_proxy_rule="Host(\`$BT_PUBLIC_HOST\`) && (PathPrefix(\`/ingest\`) || PathPrefix(\`/upsert\`))"
+    generated_grafana_rule="Host(\`$BT_PUBLIC_HOST\`) && PathPrefix(\`/grafana\`)"
   fi
 
   if [ -n "$configured_entrypoints" ] && [ "$configured_entrypoints" != "$generated_entrypoints" ]; then
@@ -392,6 +397,10 @@ bt_configure_public_runtime() {
     preserve_pg_proxy_rule=true
     custom_traefik_keys="${custom_traefik_keys:+$custom_traefik_keys, }TRAEFIK_PG_PROXY_RULE"
   fi
+  if [ -n "$configured_grafana_rule" ] && [ "$configured_grafana_rule" != "$generated_grafana_rule" ]; then
+    preserve_grafana_rule=true
+    custom_traefik_keys="${custom_traefik_keys:+$custom_traefik_keys, }TRAEFIK_GRAFANA_RULE"
+  fi
 
   if [ "$persist" = true ] && [ -f "$config_file" ] && { [ "$legacy_present" = true ] || [ "${BREAKTEST_PUBLIC_URL:-}" != "$BT_PUBLIC_URL" ] || [ "${BREAKTEST_TLS_MODE:-}" != "$tls_mode" ]; }; then
     backup_file="${config_file}.before-public-url.$(date +%Y%m%d%H%M%S)"
@@ -408,6 +417,7 @@ bt_configure_public_runtime() {
     [ "$preserve_backend_rule" = true ] || bt_remove_env_value "$config_file" TRAEFIK_BACKEND_RULE
     [ "$preserve_websocket_rule" = true ] || bt_remove_env_value "$config_file" TRAEFIK_WEBSOCKET_RULE
     [ "$preserve_pg_proxy_rule" = true ] || bt_remove_env_value "$config_file" TRAEFIK_PG_PROXY_RULE
+    [ "$preserve_grafana_rule" = true ] || bt_remove_env_value "$config_file" TRAEFIK_GRAFANA_RULE
     echo "Migrated public endpoint settings in $config_file (backup: $backup_file)"
   fi
 
@@ -422,6 +432,7 @@ bt_configure_public_runtime() {
   TRAEFIK_BACKEND_RULE="$generated_backend_rule"
   TRAEFIK_WEBSOCKET_RULE="$generated_websocket_rule"
   TRAEFIK_PG_PROXY_RULE="$generated_pg_proxy_rule"
+  TRAEFIK_GRAFANA_RULE="$generated_grafana_rule"
   [ "$preserve_entrypoints" = true ] && TRAEFIK_ENTRYPOINTS="$configured_entrypoints"
   [ "$preserve_tls" = true ] && TRAEFIK_TLS="$configured_tls"
   [ "$preserve_cert_resolver" = true ] && TRAEFIK_CERT_RESOLVER="$configured_cert_resolver"
@@ -429,11 +440,13 @@ bt_configure_public_runtime() {
   [ "$preserve_backend_rule" = true ] && TRAEFIK_BACKEND_RULE="$configured_backend_rule"
   [ "$preserve_websocket_rule" = true ] && TRAEFIK_WEBSOCKET_RULE="$configured_websocket_rule"
   [ "$preserve_pg_proxy_rule" = true ] && TRAEFIK_PG_PROXY_RULE="$configured_pg_proxy_rule"
+  [ "$preserve_grafana_rule" = true ] && TRAEFIK_GRAFANA_RULE="$configured_grafana_rule"
   if [ -n "$custom_traefik_keys" ]; then
     echo "Preserving customized Traefik settings: $custom_traefik_keys"
   fi
   export TRAEFIK_ENTRYPOINTS TRAEFIK_TLS TRAEFIK_CERT_RESOLVER
   export TRAEFIK_FRONTEND_RULE TRAEFIK_BACKEND_RULE TRAEFIK_WEBSOCKET_RULE TRAEFIK_PG_PROXY_RULE
+  export TRAEFIK_GRAFANA_RULE
 }
 
 bt_uses_https_compose() {
@@ -447,6 +460,157 @@ bt_profile_contains() {
     *,"$profile",*) return 0 ;;
     *) return 1 ;;
   esac
+}
+
+bt_append_profile() {
+  local profiles="${1:-}"
+  local profile="$2"
+  if [ -z "$profiles" ]; then
+    printf '%s' "$profile"
+  else
+    printf '%s,%s' "$profiles" "$profile"
+  fi
+}
+
+bt_remove_profile() {
+  local profiles="${1:-}"
+  local remove="$2"
+  local result=""
+  local old_ifs="$IFS"
+  local profile=""
+  IFS=','
+  for profile in $profiles; do
+    IFS="$old_ifs"
+    profile="$(printf '%s' "$profile" | xargs)"
+    if [ -n "$profile" ] && [ "$profile" != "$remove" ]; then
+      if [ -z "$result" ]; then
+        result="$profile"
+      else
+        result="$result,$profile"
+      fi
+    fi
+    IFS=','
+  done
+  IFS="$old_ifs"
+  printf '%s' "$result"
+}
+
+bt_normalize_ip_ranges() {
+  local allowlist_raw="$1"
+  local setting_name="$2"
+  local range=""
+  local result=""
+
+  case "$allowlist_raw" in
+    \"*\") allowlist_raw="${allowlist_raw#\"}"; allowlist_raw="${allowlist_raw%\"}" ;;
+    \'*\') allowlist_raw="${allowlist_raw#\'}"; allowlist_raw="${allowlist_raw%\'}" ;;
+  esac
+
+  while IFS= read -r range; do
+    range=$(printf '%s' "$range" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+    [ -n "$range" ] || continue
+    if [[ ! "$range" =~ ^[0-9A-Fa-f:.]+(/[0-9]{1,3})?$ ]]; then
+      echo "Error: invalid ${setting_name} entry '$range'. Use comma-separated IPs or CIDR ranges only." >&2
+      return 1
+    fi
+    if [[ "$range" != */* ]]; then
+      if [[ "$range" == *.* ]]; then
+        range="$range/32"
+      else
+        range="$range/128"
+      fi
+    fi
+    if [ -z "$result" ]; then
+      result="$range"
+    else
+      result="$result,$range"
+    fi
+  done <<EOF
+$(printf '%s' "$allowlist_raw" | tr ',' '\n')
+EOF
+
+  if [ -z "$result" ]; then
+    echo "Error: ${setting_name} must contain at least one IP/CIDR range" >&2
+    return 1
+  fi
+
+  printf '%s' "$result"
+}
+
+bt_configure_grafana_ip_allowlist() {
+  local allowlist_raw="${GRAFANA_IP_ALLOWLIST:-127.0.0.1/32,::1/128}"
+  local normalized=""
+
+  normalized=$(bt_normalize_ip_ranges "$allowlist_raw" GRAFANA_IP_ALLOWLIST) || return 1
+
+  TRAEFIK_GRAFANA_IP_ALLOWLIST="$normalized"
+  export TRAEFIK_GRAFANA_IP_ALLOWLIST
+  echo "Grafana IP allowlist configured: $TRAEFIK_GRAFANA_IP_ALLOWLIST" >&2
+}
+
+bt_generate_grafana_db_password() {
+  openssl rand -hex 24 2>/dev/null || {
+    echo "Error: openssl is required to generate the Grafana read-only database password" >&2
+    return 1
+  }
+}
+
+bt_configure_grafana_profile() {
+  local config_file="${1:-config.env}"
+  local persist="${2:-true}"
+
+  if bt_env_truthy GRAFANA_ENABLED "${GRAFANA_ENABLED:-false}"; then
+    case "${GRAFANA_ADMIN_PASSWORD:-}" in
+      ''|CHANGE_ME)
+        echo "Error: GRAFANA_ENABLED=true requires GRAFANA_ADMIN_PASSWORD" >&2
+        return 1
+        ;;
+    esac
+    bt_configure_grafana_ip_allowlist || return 1
+
+    GRAFANA_MONITORING_DB_USER="${GRAFANA_MONITORING_DB_USER:-graf_breaktest_monitoring_ro}"
+    case "${GRAFANA_MONITORING_DB_PASSWORD:-}" in
+      ''|CHANGE_ME)
+        GRAFANA_MONITORING_DB_PASSWORD=$(bt_generate_grafana_db_password) || return 1
+        if [ "$persist" = true ] && [ -f "$config_file" ]; then
+          bt_set_env_value "$config_file" GRAFANA_MONITORING_DB_USER "$GRAFANA_MONITORING_DB_USER"
+          bt_set_env_value "$config_file" GRAFANA_MONITORING_DB_PASSWORD "$GRAFANA_MONITORING_DB_PASSWORD"
+        fi
+        echo "Generated Grafana read-only database credentials in $config_file" >&2
+        ;;
+    esac
+    export GRAFANA_MONITORING_DB_USER GRAFANA_MONITORING_DB_PASSWORD
+
+    if [ "${BREAKTEST_TLS_MODE:-disabled}" = "external" ]; then
+      if [ -z "${TRAEFIK_TRUSTED_PROXY_IPS:-}" ]; then
+        echo "Error: external TLS with Grafana requires TRAEFIK_TRUSTED_PROXY_IPS for trusted X-Forwarded-For handling" >&2
+        return 1
+      fi
+      TRAEFIK_TRUSTED_PROXY_IPS=$(bt_normalize_ip_ranges "$TRAEFIK_TRUSTED_PROXY_IPS" TRAEFIK_TRUSTED_PROXY_IPS) || return 1
+      TRAEFIK_GRAFANA_IP_STRATEGY_DEPTH=1
+    else
+      TRAEFIK_GRAFANA_IP_STRATEGY_DEPTH=0
+    fi
+    export TRAEFIK_TRUSTED_PROXY_IPS TRAEFIK_GRAFANA_IP_STRATEGY_DEPTH
+
+    if ! bt_profile_contains "${COMPOSE_PROFILES:-}" "grafana"; then
+      COMPOSE_PROFILES="$(bt_append_profile "${COMPOSE_PROFILES:-}" "grafana")"
+      if [ "$persist" = true ] && [ -f "$config_file" ]; then
+        bt_set_env_value "$config_file" COMPOSE_PROFILES "$COMPOSE_PROFILES"
+      fi
+    fi
+  else
+    TRAEFIK_GRAFANA_IP_ALLOWLIST="${TRAEFIK_GRAFANA_IP_ALLOWLIST:-127.0.0.1/32,::1/128}"
+    TRAEFIK_GRAFANA_IP_STRATEGY_DEPTH=0
+    export TRAEFIK_GRAFANA_IP_ALLOWLIST TRAEFIK_GRAFANA_IP_STRATEGY_DEPTH
+    if bt_profile_contains "${COMPOSE_PROFILES:-}" "grafana"; then
+      COMPOSE_PROFILES="$(bt_remove_profile "${COMPOSE_PROFILES:-}" "grafana")"
+      if [ "$persist" = true ] && [ -f "$config_file" ]; then
+        bt_set_env_value "$config_file" COMPOSE_PROFILES "$COMPOSE_PROFILES"
+      fi
+    fi
+  fi
+  export COMPOSE_PROFILES
 }
 
 bt_docker_socket_candidates() {

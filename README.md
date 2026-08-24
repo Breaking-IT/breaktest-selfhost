@@ -57,7 +57,11 @@ that key keeps all existing archives on its first run. For Hetzner Storage Box,
 `BACKUP_INSTALLATION_NAME` is optional for backward compatibility: leaving it
 empty preserves the old remote directory, while setting a unique name stores
 new backups below that name.
-Run a backup from the bundle directory with `./full_backup.sh`.
+Run a backup from the bundle directory with `./full_backup.sh`. Manual backups
+should run in a durable shell or service session: interrupting the command
+aborts the backup and terminates only the database dump sessions owned by that
+run. `MAX_PARALLEL` controls concurrent PostgreSQL dumps, while
+`BACKUP_DISK_HEADROOM_GB` adds free-space headroom to the preflight check.
 
 ## Public URL and TLS
 
@@ -165,6 +169,37 @@ The guided installer always keeps the local generator private to the default
 customer. Service-provider deployments can change these advanced settings in
 `config.env` after installation.
 
+## Grafana
+
+Grafana is disabled by the guided installer. To enable it later, set:
+
+```env
+GRAFANA_ENABLED=true
+GRAFANA_ADMIN_PASSWORD=choose-a-strong-password
+GRAFANA_IP_ALLOWLIST=127.0.0.1/32,::1/128,203.0.113.10/32
+```
+
+`./start.sh` adds the `grafana` Compose profile, serves Grafana at
+`/grafana` on the public URL, provisions the BreakTest System Monitoring
+dashboard and a Timescale datasource for `breaktest_monitoring`, and generates
+credentials for the dedicated `graf_breaktest_monitoring_ro` database role.
+Sign in as `admin` with `GRAFANA_ADMIN_PASSWORD`.
+Traefik only accepts Grafana traffic from `GRAFANA_IP_ALLOWLIST`
+(localhost only by default). Bare IPs are expanded to `/32` or `/128`.
+Grafana state is stored in the `grafana_data` Docker volume.
+
+When `BREAKTEST_TLS_MODE=external`, also configure the IP or network of the
+upstream reverse proxy:
+
+```env
+TRAEFIK_TRUSTED_PROXY_IPS=10.0.0.10/32
+```
+
+The proxy must send `X-Forwarded-For` with the real client address. BreakTest
+trusts that header only when the request comes from `TRAEFIK_TRUSTED_PROXY_IPS`;
+the Grafana allowlist then checks the forwarded client address. Never set this
+to an unrestricted range such as `0.0.0.0/0`.
+
 ## AI Assistant
 
 The AI assistant is disabled by the guided installer. To enable it later, add
@@ -267,10 +302,6 @@ Stop:
 ```bash
 ./stop.sh
 ```
-
-## Not Included
-
-The public self-host bundle does not deploy Grafana.
 
 ## Production Notes
 

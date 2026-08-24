@@ -422,6 +422,16 @@ HETZNER_STORAGE_PATH=backups
 HETZNER_STORAGE_SSH_PORT=23
 HETZNER_STORAGE_SSH_KEY=
 
+GRAFANA_ENABLED=false
+GRAFANA_ADMIN_PASSWORD=
+# Comma-separated IP/CIDR ranges allowed to access /grafana through Traefik.
+# Default is localhost only. Add your public admin IP, e.g. 203.0.113.10/32.
+GRAFANA_IP_ALLOWLIST="127.0.0.1/32,::1/128"
+GRAFANA_MONITORING_DB_USER=graf_breaktest_monitoring_ro
+GRAFANA_MONITORING_DB_PASSWORD=
+# Required when Grafana is enabled behind an external TLS proxy.
+TRAEFIK_TRUSTED_PROXY_IPS=
+
 AI_ASSISTANT_ENABLED=$ai_assistant_enabled
 HERMES_URL=http://ai-assistant:8080
 HERMES_API_KEY=$hermes_api_key

@@ -1,0 +1,23 @@
+apiVersion: 1
+
+datasources:
+  # Uses BT_POSTGRES_* from the Grafana container; database is fixed to
+  # breaktest_monitoring only. BreakTest creates the dedicated read-only role
+  # from GRAFANA_MONITORING_DB_USER / GRAFANA_MONITORING_DB_PASSWORD.
+  # Do not set `uid` here: Grafana derives a stable UID from the name.
+  - name: monitoring_breaktest
+    type: postgres
+    access: proxy
+    orgId: 1
+    url: $__env{BT_POSTGRES_HOST}:$__env{BT_POSTGRES_PORT}
+    database: breaktest_monitoring
+    user: $__env{BT_POSTGRES_USER}
+    secureJsonData:
+      password: $__env{BT_POSTGRES_PASSWORD}
+    jsonData:
+      database: breaktest_monitoring
+      sslmode: disable
+      postgresVersion: 1600
+      timescaledb: true
+    isDefault: true
+    editable: true
