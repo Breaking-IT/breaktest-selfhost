@@ -32,6 +32,9 @@ bt_set_env_value() {
     sed -i.bak "s|^${key}=.*|${key}=${escaped}|" "$config_file"
     rm -f "${config_file}.bak"
   else
+    if [ -s "$config_file" ] && [ -n "$(tail -c 1 "$config_file")" ]; then
+      printf '\n' >> "$config_file"
+    fi
     printf '%s=%s\n' "$key" "$value" >> "$config_file"
   fi
 }
@@ -773,6 +776,117 @@ bt_choose_loadgenerator_run_mode() {
   printf '%s' "process"
 }
 
+bt_configure_loadgenerator_identity() {
+  local config_file="${1:-}"
+  local host_uid=""
+  local host_gid=""
+  local default_uid="1000"
+  local default_gid="1000"
+  local target_uid="${LOAD_GENERATOR_UID:-}"
+  local target_gid="${LOAD_GENERATOR_GID:-}"
+
+  host_uid=$(id -u)
+  host_gid=$(id -g)
+
+  # Docker Desktop mediates bind-mount permissions, so keep the image's
+  # native identity on macOS. Native Linux bind mounts use numeric ownership;
+  # an unprivileged installation must therefore run as the invoking user.
+  if [ "$(uname -s)" != "Darwin" ] && [ "$host_uid" -ne 0 ]; then
+    default_uid="$host_uid"
+    default_gid="$host_gid"
+  fi
+
+  target_uid="${target_uid:-$default_uid}"
+  target_gid="${target_gid:-$default_gid}"
+  case "$target_uid" in
+    ''|*[!0-9]*)
+      echo "Error: LOAD_GENERATOR_UID must be numeric (got '$target_uid')." >&2
+      return 1
+      ;;
+  esac
+  case "$target_gid" in
+    ''|*[!0-9]*)
+      echo "Error: LOAD_GENERATOR_GID must be numeric (got '$target_gid')." >&2
+      return 1
+      ;;
+  esac
+
+  LOAD_GENERATOR_UID="$target_uid"
+  LOAD_GENERATOR_GID="$target_gid"
+  export LOAD_GENERATOR_UID LOAD_GENERATOR_GID
+
+  if [ -n "$config_file" ] && [ -f "$config_file" ]; then
+    bt_set_env_value "$config_file" LOAD_GENERATOR_UID "$LOAD_GENERATOR_UID"
+    bt_set_env_value "$config_file" LOAD_GENERATOR_GID "$LOAD_GENERATOR_GID"
+  fi
+}
+
+bt_prepare_loadgenerator_files_directory() {
+  local files_dir="${1:-loadgenerator/files}"
+  local target_uid=""
+  local target_gid=""
+  local metadata=""
+  local owner_uid=""
+  local owner_gid=""
+  local mode=""
+  local owner_permissions=0
+  local group_permissions=0
+  local other_permissions=0
+
+  bt_configure_loadgenerator_identity || return 1
+  target_uid="$LOAD_GENERATOR_UID"
+  target_gid="$LOAD_GENERATOR_GID"
+
+  if ! mkdir -p "$files_dir"; then
+    echo "Error: Could not create load generator files directory: $files_dir" >&2
+    return 1
+  fi
+
+  # A root-run installer would otherwise leave this bind mount owned by root
+  # while the loadgenerator runs as its configured non-root UID/GID.
+  if [ "$(id -u)" -eq 0 ]; then
+    if ! chown -R "${target_uid}:${target_gid}" "$files_dir"; then
+      echo "Error: Could not set load generator files ownership to ${target_uid}:${target_gid}: $files_dir" >&2
+      return 1
+    fi
+    if ! chmod u+rwx "$files_dir"; then
+      echo "Error: Could not make load generator files directory writable: $files_dir" >&2
+      return 1
+    fi
+  fi
+
+  metadata=$(stat -c '%u %g %a' "$files_dir" 2>/dev/null || stat -f '%u %g %Lp' "$files_dir" 2>/dev/null || true)
+  read -r owner_uid owner_gid mode <<EOF
+$metadata
+EOF
+  case "$mode" in
+    ''|*[!0-7]*)
+      echo "Error: Could not inspect load generator files permissions: $files_dir" >&2
+      return 1
+      ;;
+  esac
+
+  owner_permissions=$(( (8#$mode / 64) % 8 ))
+  group_permissions=$(( (8#$mode / 8) % 8 ))
+  other_permissions=$(( 8#$mode % 8 ))
+
+  if { [ "$owner_uid" = "$target_uid" ] && [ $((owner_permissions & 3)) -eq 3 ]; } ||
+     { [ "$owner_gid" = "$target_gid" ] && [ $((group_permissions & 3)) -eq 3 ]; } ||
+     [ $((other_permissions & 3)) -eq 3 ]; then
+    return 0
+  fi
+
+  # Docker Desktop mediates bind mounts instead of applying the host numeric
+  # UID directly, so the invoking user's writability is the useful check there.
+  if [ "$(uname -s)" = "Darwin" ] && [ -w "$files_dir" ]; then
+    return 0
+  fi
+
+  echo "Error: Load generator files directory is not writable by UID/GID ${target_uid}:${target_gid}: $files_dir" >&2
+  echo "Fix it with: sudo chown -R ${target_uid}:${target_gid} '$files_dir' && sudo chmod u+rwx '$files_dir'" >&2
+  return 1
+}
+
 bt_prepare_loadgenerator() {
   local run_mode="${LOAD_GENERATOR_RUN_MODE:-container}"
   local docker_gid="${LOAD_GENERATOR_DOCKER_GID:-}"
@@ -783,12 +897,14 @@ bt_prepare_loadgenerator() {
     return 0
   fi
 
+  bt_configure_loadgenerator_identity config.env || return 1
+  bt_prepare_loadgenerator_files_directory loadgenerator/files || return 1
+
   case "$run_mode" in
     container)
       probe_image=$(bt_loadgenerator_probe_image || true)
       if bt_select_mountable_docker_socket "$probe_image"; then
         docker_socket="$BT_SELECTED_DOCKER_SOCKET"
-        mkdir -p loadgenerator/files
         if [ -z "${HOST_TESTPLAN_PATH:-}" ]; then
           HOST_TESTPLAN_PATH="$(pwd -P)/loadgenerator/files"
         fi

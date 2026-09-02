@@ -202,10 +202,21 @@ to an unrestricted range such as `0.0.0.0/0`.
 
 ## AI Assistant
 
-The AI assistant is disabled by the guided installer. To enable it later, add
-`ai-assistant` to `COMPOSE_PROFILES`, set `AI_ASSISTANT_ENABLED=true`, and
-configure either `ANTHROPIC_API_KEY` or both `OPENAI_ACCESS_TOKEN` and
-`OPENAI_REFRESH_TOKEN` in `config.env`.
+The AI assistant is disabled by the guided installer. To select an inference
+provider, authenticate, and choose a model, run this from the Selfhost bundle
+directory:
+
+```bash
+./ai-setup.sh
+```
+
+Hermes presents its provider and model picker inside a one-off AI-assistant
+container. For an OpenAI subscription, choose **OpenAI**, then **OpenAI Codex**;
+Hermes prints an OpenAI device URL and one-time code for login. Provider
+configuration and credentials are stored only in the project-scoped Hermes
+Docker volume. `config.env` contains no OpenAI tokens, provider API keys, or AI
+model selection. The command enables the `ai-assistant` Compose profile and
+starts the stack. Re-run it to change provider/model or re-authenticate.
 
 Backend access also requires a BreakTest license with the AI assistant entitlement enabled.
 

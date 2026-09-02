@@ -266,33 +266,28 @@ ensure_config() {
     echo "Note: BREAKTEST_VERSION override in config.env is active: ${BREAKTEST_VERSION}"
   fi
 
-  if [ -n "${ANTHROPIC_API_KEY:-}" ] || { [ -n "${OPENAI_ACCESS_TOKEN:-}" ] && [ -n "${OPENAI_REFRESH_TOKEN:-}" ]; }; then
-    if ! bt_env_truthy AI_ASSISTANT_ENABLED "${AI_ASSISTANT_ENABLED:-false}"; then
-      set_env_value AI_ASSISTANT_ENABLED "true"
-      AI_ASSISTANT_ENABLED="true"
-    fi
+  if bt_env_truthy AI_ASSISTANT_ENABLED "${AI_ASSISTANT_ENABLED:-false}"; then
     if ! profile_contains "${COMPOSE_PROFILES:-}" "ai-assistant"; then
       COMPOSE_PROFILES="$(append_profile_value "${COMPOSE_PROFILES:-}" "ai-assistant")"
       set_env_value COMPOSE_PROFILES "$COMPOSE_PROFILES"
     fi
   else
-    if bt_env_truthy AI_ASSISTANT_ENABLED "${AI_ASSISTANT_ENABLED:-false}"; then
-      set_env_value AI_ASSISTANT_ENABLED "false"
-      AI_ASSISTANT_ENABLED="false"
-    fi
     if profile_contains "${COMPOSE_PROFILES:-}" "ai-assistant"; then
       COMPOSE_PROFILES="$(remove_profile_value "${COMPOSE_PROFILES:-}" "ai-assistant")"
       set_env_value COMPOSE_PROFILES "$COMPOSE_PROFILES"
-      echo "Warning: AI assistant profile disabled because no AI provider credentials are configured."
+    fi
+    # Provider credentials moved into the Hermes Docker volume, and the block
+    # that used to auto-enable on their presence is gone. An upgraded install
+    # would otherwise just stop running the assistant with no explanation.
+    if grep -qE '^[[:space:]]*(ANTHROPIC_API_KEY|OPENAI_REFRESH_TOKEN|OPENAI_ACCESS_TOKEN|AI_MODEL)=..*' config.env 2>/dev/null; then
+      echo "Note: config.env still has legacy AI provider settings (ANTHROPIC_API_KEY / OPENAI_* / AI_MODEL)."
+      echo "      These are no longer read. Run ./ai-setup.sh to choose a provider and re-enable the assistant."
     fi
   fi
 
   bt_configure_grafana_profile config.env
 
   mkdir -p backups
-  if profile_contains "${COMPOSE_PROFILES:-}" "loadgenerator"; then
-    mkdir -p loadgenerator/files
-  fi
 }
 
 prepare_postgres_data_path() {

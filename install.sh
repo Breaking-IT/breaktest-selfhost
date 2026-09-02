@@ -328,12 +328,6 @@ lg_customer_name="Default"
 lg_supports_sm="true"
 
 ai_assistant_enabled="false"
-anthropic_api_key=""
-openai_access_token=""
-openai_refresh_token=""
-openai_token_expires=""
-openai_email=""
-ai_model=""
 hermes_api_key=$(random_hex 32)
 
 section "1/3  Network"
@@ -435,12 +429,6 @@ TRAEFIK_TRUSTED_PROXY_IPS=
 AI_ASSISTANT_ENABLED=$ai_assistant_enabled
 HERMES_URL=http://ai-assistant:8080
 HERMES_API_KEY=$hermes_api_key
-ANTHROPIC_API_KEY=$anthropic_api_key
-OPENAI_ACCESS_TOKEN=$openai_access_token
-OPENAI_REFRESH_TOKEN=$openai_refresh_token
-OPENAI_TOKEN_EXPIRES=$openai_token_expires
-OPENAI_EMAIL=$openai_email
-AI_MODEL=$ai_model
 
 JWT_SECRET_KEY=$(random_hex 32)
 CREDENTIAL_ENCRYPTION_KEY=$(credential_key)
@@ -453,6 +441,9 @@ MONGO_DATABASE=breakingit
 
 POSTGRES_DATA_PATH=$postgres_data_path
 POSTGRES_MAX_CONNECTIONS=100
+POSTGRES_MAX_WORKER_PROCESSES=64
+POSTGRES_MAX_PARALLEL_WORKERS=16
+POSTGRES_MAX_BG_WORKERS=32
 POSTGRES_TIMEZONE=$timezone
 POSTGRES_FSYNC=off
 POSTGRES_SYNCHRONOUS_COMMIT=off
@@ -500,7 +491,8 @@ GCP_SERVICE_ACCOUNT_KEY=
 EOF
 
 mkdir -p backups
-mkdir -p loadgenerator/files
+bt_configure_loadgenerator_identity "$CONFIG_FILE"
+bt_prepare_loadgenerator_files_directory loadgenerator/files
 
 echo
 indent_echo "Created $CONFIG_FILE"

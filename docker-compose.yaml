@@ -160,6 +160,12 @@ services:
       - -c
       - max_connections=${POSTGRES_MAX_CONNECTIONS:-100}
       - -c
+      - max_worker_processes=${POSTGRES_MAX_WORKER_PROCESSES:-64}
+      - -c
+      - max_parallel_workers=${POSTGRES_MAX_PARALLEL_WORKERS:-16}
+      - -c
+      - timescaledb.max_background_workers=${POSTGRES_MAX_BG_WORKERS:-32}
+      - -c
       - timezone=${POSTGRES_TIMEZONE:-UTC}
       - -c
       - log_timezone=${POSTGRES_TIMEZONE:-UTC}
@@ -211,20 +217,12 @@ services:
     profiles:
       - ai-assistant
     restart: unless-stopped
-    env_file:
-      - config.env
     environment:
       - HERMES_API_KEY=${HERMES_API_KEY:-breaktest-internal}
       - API_SERVER_KEY=${HERMES_API_KEY:-breaktest-internal}
       - API_SERVER_ENABLED=true
       - API_SERVER_HOST=0.0.0.0
       - API_SERVER_PORT=8080
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
-      - OPENAI_ACCESS_TOKEN=${OPENAI_ACCESS_TOKEN:-}
-      - OPENAI_REFRESH_TOKEN=${OPENAI_REFRESH_TOKEN:-}
-      - OPENAI_TOKEN_EXPIRES=${OPENAI_TOKEN_EXPIRES:-}
-      - OPENAI_EMAIL=${OPENAI_EMAIL:-}
-      - AI_MODEL=${AI_MODEL:-}
     depends_on:
       backend:
         condition: service_healthy
