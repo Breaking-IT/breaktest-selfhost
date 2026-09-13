@@ -2,7 +2,7 @@ name: breaktest
 
 services:
   traefik:
-    image: traefik:v3.7.11
+    image: traefik:v3.7.13
     restart: unless-stopped
     command:
       - --api.dashboard=false
@@ -112,7 +112,7 @@ services:
       - no-new-privileges:true
 
   mongodb:
-    image: mongo:8.3.8
+    image: mongo:8.3.9
     restart: unless-stopped
     command: ["mongod", "--logpath", "/var/log/mongodb/mongodb.log"]
     environment:
