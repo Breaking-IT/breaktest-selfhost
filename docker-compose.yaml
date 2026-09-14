@@ -243,6 +243,20 @@ services:
     # Real /dev/shm for shared browsers in K6 Browser runs; without it the
     # agent falls back to slow disk-backed shared memory
     shm_size: 4gb
+    # Native JVM threads count as PIDs; explicitly override Docker/systemd defaults.
+    pids_limit: -1
+    ulimits:
+      nproc:
+        soft: 1048576
+        hard: 1048576
+      nofile:
+        soft: 1048576
+        hard: 1048576
+    # Bridge containers have their own network namespace; host tuning is insufficient.
+    sysctls:
+      net.ipv4.ip_local_port_range: "1024 65535"
+      net.ipv4.tcp_fin_timeout: "10"
+      net.ipv4.tcp_tw_reuse: "1"
     # Zero means unlimited. In container mode these parent limits are also
     # propagated to each JMeter/K6 workload container.
     cpus: ${LOAD_GENERATOR_CPU_LIMIT:-0}
