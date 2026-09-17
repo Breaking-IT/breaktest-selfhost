@@ -178,6 +178,7 @@ if [ -f version.env ]; then
 fi
 # shellcheck disable=SC1091
 source config.env
+bt_validate_postgres_wal_settings
 set +a
 bt_apply_image_version_overrides config.env
 

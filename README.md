@@ -98,6 +98,70 @@ Then start:
 ./start.sh
 ```
 
+## TimescaleDB configuration
+
+Set database tuning values in `config.env`, then run `./start.sh` to recreate
+services whose Compose configuration changed. A plain container restart does
+not apply a changed Compose command. Schedule this outside active tests because
+recreating TimescaleDB interrupts database connections.
+
+The self-host bundle now passes `POSTGRES_MAX_WAL_SIZE`, `POSTGRES_WAL_LEVEL`,
+`POSTGRES_MAX_WAL_SENDERS`, `TIMESCALEDB_ENABLE_DIRECT_COMPRESS_COPY`,
+`TIMESCALEDB_ENABLE_IN_MEMORY_RECOMPRESSION`, and
+`TIMESCALEDB_ENABLE_DIRECT_COMPRESS_ON_CAGG_REFRESH` to PostgreSQL. Older bundles
+ignored these keys even when they were present in `config.env`.
+
+For compression parity with the original source deployment's sample configuration:
+
+```env
+TIMESCALEDB_ENABLE_DIRECT_COMPRESS_COPY=true
+TIMESCALEDB_ENABLE_IN_MEMORY_RECOMPRESSION=true
+TIMESCALEDB_ENABLE_DIRECT_COMPRESS_ON_CAGG_REFRESH=true
+POSTGRES_MAX_WAL_SIZE=2GB
+```
+
+Direct COPY compression affects eligible new writes; it does not retroactively
+compress all existing data. Direct COPY and aggregate-refresh compression now
+default to enabled in both deployments, matching the source sample configuration.
+Existing explicit `false` values remain effective; change them to `true` to
+use compression. Set either flag to `false` to disable that feature.
+
+WAL settings are independently configurable. Self-host defaults are
+`POSTGRES_WAL_LEVEL=minimal` and `POSTGRES_MAX_WAL_SENDERS=0`, matching the
+original source deployment. Use this pair only when replication and
+point-in-time recovery are not required. Changing `wal_level` to `minimal`
+requires `max_wal_senders=0` and affects backup/recovery capabilities.
+With `minimal` and non-zero senders, PostgreSQL refuses to start. Both
+`start.sh` and `upgrade.sh` reject this combination before recreating services.
+Existing explicit values are preserved; set `replica` or `logical` explicitly
+when replication/PITR is required. WAL is
+still generated for ordinary writes to existing tables with `minimal`.
+`POSTGRES_MAX_WAL_SIZE` now defaults explicitly to `1GB`; preserve an existing
+custom or image-tuned value in `config.env` if needed.
+
+Check effective settings in the affected customer database after recreation:
+
+```sql
+SHOW timescaledb.enable_direct_compress_copy;
+SHOW timescaledb.enable_in_memory_recompression;
+SHOW timescaledb.enable_direct_compress_on_cagg_refresh;
+SHOW wal_level;
+SHOW max_wal_senders;
+SHOW max_wal_size;
+```
+
+Matching these six settings does not reproduce source-deployment performance
+by itself. Fresh self-host and source samples still differ in worker processes
+(64 vs 128), parallel workers (16 vs 24), TimescaleDB background workers (32 vs
+96), and `work_mem` (64MB vs 128MB). These are intentional sizing differences;
+compare effective settings on both servers and explicitly match the benchmark's
+resource configuration, which may also differ from either sample.
+
+Existing `config.env` files are not rewritten by this change. Previously ignored
+values in them now take effect; inspect those values before applying the updated
+bundle. Database/role overrides and persisted PostgreSQL configuration should
+also be considered when comparing deployments.
+
 ## Images and Versions
 
 The compose file pulls BreakTest runtime images from Docker Hub:

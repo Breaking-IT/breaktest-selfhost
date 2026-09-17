@@ -314,6 +314,7 @@ prepare_postgres_data_path() {
 }
 
 ensure_config
+bt_validate_postgres_wal_settings
 bt_configure_public_runtime config.env
 prepare_postgres_data_path
 check_free_disk_space

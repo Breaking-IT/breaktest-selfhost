@@ -2,6 +2,21 @@
 
 # Shared public URL and TLS configuration for the self-host lifecycle scripts.
 
+bt_validate_postgres_wal_settings() {
+  local wal_level="${POSTGRES_WAL_LEVEL:-minimal}"
+  local senders="${POSTGRES_MAX_WAL_SENDERS:-0}"
+  if [[ ! "$senders" =~ ^[0-9]+$ ]]; then
+    echo "Error: POSTGRES_MAX_WAL_SENDERS must be a non-negative integer; got $senders. Fix config.env before starting or upgrading. Services have not been recreated." >&2
+    return 1
+  fi
+  if [ "$(printf '%s' "$wal_level" | tr '[:upper:]' '[:lower:]')" = minimal ] &&
+     [[ ! "$senders" =~ ^0+$ ]]; then
+    echo "Error: POSTGRES_WAL_LEVEL=minimal requires POSTGRES_MAX_WAL_SENDERS=0; got $senders. PostgreSQL will not start with this combination." >&2
+    echo "Set POSTGRES_MAX_WAL_SENDERS=0 in config.env, or use POSTGRES_WAL_LEVEL=replica or logical if replication is required. Services have not been recreated." >&2
+    return 1
+  fi
+}
+
 bt_env_bool() {
   local name="$1"
   local value="${2:-}"

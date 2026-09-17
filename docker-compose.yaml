@@ -167,6 +167,8 @@ services:
       - -c
       - timescaledb.max_background_workers=${POSTGRES_MAX_BG_WORKERS:-32}
       - -c
+      - max_wal_size=${POSTGRES_MAX_WAL_SIZE:-1GB}
+      - -c
       - timezone=${POSTGRES_TIMEZONE:-UTC}
       - -c
       - log_timezone=${POSTGRES_TIMEZONE:-UTC}
@@ -177,7 +179,17 @@ services:
       - -c
       - full_page_writes=${POSTGRES_FULL_PAGE_WRITES:-on}
       - -c
+      - wal_level=${POSTGRES_WAL_LEVEL:-minimal}
+      - -c
+      - max_wal_senders=${POSTGRES_MAX_WAL_SENDERS:-0}
+      - -c
       - work_mem=${POSTGRES_WORK_MEM:-64MB}
+      - -c
+      - timescaledb.enable_direct_compress_copy=${TIMESCALEDB_ENABLE_DIRECT_COMPRESS_COPY:-true}
+      - -c
+      - timescaledb.enable_in_memory_recompression=${TIMESCALEDB_ENABLE_IN_MEMORY_RECOMPRESSION:-true}
+      - -c
+      - timescaledb.enable_direct_compress_on_cagg_refresh=${TIMESCALEDB_ENABLE_DIRECT_COMPRESS_ON_CAGG_REFRESH:-true}
     security_opt:
       - no-new-privileges:true
 
