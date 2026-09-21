@@ -3,6 +3,8 @@ set -euo pipefail
 
 # shellcheck source=config-helpers.sh
 source "$(dirname "$0")/config-helpers.sh"
+# shellcheck source=upgrade-guard.sh
+source "$(dirname "$0")/upgrade-guard.sh"
 
 PROJECT_NAME=""
 UPDATE_BUNDLE=true
@@ -16,6 +18,9 @@ Usage: ./upgrade.sh [--project-name name] [--no-bundle-update]
   --no-bundle-update
                 Skip updating the bundle itself (git pull); only pull and
                 restart images at the currently pinned version
+
+Set BT_UPGRADE_ASSUME_YES=1 to explicitly accept possible test interruption
+without an interactive confirmation (including when test state is unknown).
 
 Upgrades update the bundle first (compose file, scripts, and pinned per-service
 versions in version.env), then pull the matching images and restart services.
@@ -245,6 +250,8 @@ bt_prepare_loadgenerator
 if profile_contains "${COMPOSE_PROFILES:-}" "loadgenerator" && [ "${LOAD_GENERATOR_RUN_MODE:-container}" = "container" ]; then
   COMPOSE_FILES+=(-f docker-compose.loadgenerator-container-mode.yaml)
 fi
+# Recheck after image pulls/preparation, immediately before container recreation.
+bt_confirm_upgrade_interruptions "$PROJECT_NAME"
 $DOCKER_COMPOSE "${ENV_ARGS[@]}" "${COMPOSE_FILES[@]}" -p "$PROJECT_NAME" up -d --remove-orphans
 $DOCKER_COMPOSE "${ENV_ARGS[@]}" "${COMPOSE_FILES[@]}" -p "$PROJECT_NAME" ps
 

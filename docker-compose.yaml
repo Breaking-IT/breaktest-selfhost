@@ -72,6 +72,8 @@ services:
     env_file:
       - config.env
     environment:
+      - BREAKTEST_VERSION=${BREAKTEST_VERSION}
+      - BREAKTEST_DEPLOYMENT=selfhost
       - AI_ASSISTANT_ENABLED=${AI_ASSISTANT_ENABLED:-false}
       - HERMES_URL=${HERMES_URL:-http://ai-assistant:8080}
       - HERMES_API_KEY=${HERMES_API_KEY:-breaktest-internal}
@@ -138,7 +140,7 @@ services:
       - no-new-privileges:true
 
   timescaledb:
-    image: timescale/timescaledb:2.29.2-pg18
+    image: timescale/timescaledb:2.30.1-pg18
     restart: unless-stopped
     shm_size: ${POSTGRES_SHM_SIZE:-256mb}
     environment:

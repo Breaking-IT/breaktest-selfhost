@@ -366,6 +366,49 @@ superseded images after the replacement stack starts successfully):
 ./upgrade.sh
 ```
 
+The backend checks the public self-host `version.env` once per day for a newer
+stable release. SuperAdmins receive one release notification, with upgrade steps,
+under **Menu → Notifications**, including in single-tenant installations. The
+hamburger badge refreshes every minute. Other users cannot see release alerts.
+The check compares the installed bundle's `BREAKTEST_VERSION`, not individual
+image versions (which may be reused between releases). It never upgrades automatically.
+Deleting an alert does not cause the same release to be announced again.
+
+Set `BREAKTEST_RELEASE_CHECK_ENABLED=false` in `config.env` and recreate the
+backend container to disable outbound release checks, for example on offline
+installations. Failed checks leave the platform running and retry on the next
+daily check. Only public release metadata is fetched; no installation or customer
+data is sent. The source checkout reports its latest Git release tag through
+`start.sh`; if no stable installed version is available, the first observed
+release becomes a baseline and only subsequent releases produce notifications.
+
+Immediately before recreating containers, the upgrade checks the running
+installation for load generators reporting running, starting, paused, or stopping
+work, or nonempty active run IDs. Stale/disconnected active reports are flagged
+as uncertain. Unfinished tests started within the last two hours (with or without metrics)
+also warn, including when an agent restart has lost its active run IDs. Older unfinished
+test records alone do not trigger the guard. This is a conservative warning,
+not a maintenance lock or a cleanup of historical records.
+If activity or uncertainty is found, it lists up to 20 records and asks
+`Continue with upgrade? [yes/stop] (default: stop):`. Enter `yes` to proceed and
+interrupt the tests, or `stop` to cancel the upgrade without restarting containers.
+An empty answer or end-of-input also cancels. If test state cannot be checked,
+the script reports that uncertainty and requires the same explicit confirmation.
+For unattended upgrades, explicitly opt in to interrupting tests (or continuing
+when their state cannot be checked):
+
+```bash
+BT_UPGRADE_ASSUME_YES=1 ./upgrade.sh
+```
+
+The check and warning still run. Only the exact value `1` bypasses the
+interruption prompt; unset or other values retain the safe default. This
+variable applies to both upgrade scripts and does not answer the source
+checkout's separate git-pull prompt.
+
+Builds/image pulls and bundle updates already completed are not rolled back.
+The source checkout's `upgrade.sh` uses the same check before stopping services.
+
 Pull and restart at the currently pinned version without updating the bundle:
 
 ```bash
@@ -377,6 +420,20 @@ Stop:
 ```bash
 ./stop.sh
 ```
+
+## Self-host release notes
+
+See [CHANGELOG.md](CHANGELOG.md) for self-host release notes. Release notifications
+in self-host installations link to this document; source/development notifications
+do not. Historical notes have not been backfilled.
+
+Before publishing a self-host release, maintainers should replace the placeholder
+under `Unreleased` with reviewed, user-facing changes, fixes, and any required
+upgrade actions. Move those notes under a `## <version> - <date>` heading matching
+`BREAKTEST_VERSION`, and start a fresh `Unreleased` section. Include changes in
+application images shipped by the bundle, even when only some images change.
+Both the release workflow and `scripts/release_selfhost.sh` copy this file into
+the public self-host repository with the rest of the bundle.
 
 ## Production Notes
 
@@ -390,3 +447,13 @@ Stop:
 Start BreakTest, sign in as the interactive SuperAdmin, and open **Platform → License**. Pair the installation with your breaktest.io account, approve its short code in `/portal`, create or select a license there, then refresh and activate it in BreakTest. Portal credentials and raw license keys are never stored in Selfhost.
 
 Official Selfhost images contact `https://breaktest.io` at every backend start. If that check fails because of a connection problem or HTTP 5xx response, BreakTest may continue using its last signed license until 72 hours after the last successful license validation, including across restarts. A definitive license-server rejection (for example, an expired, revoked, or unavailable license) clears that grace immediately. The License page remains available while restricted or operating in grace.
+
+### Release notes in update notifications
+
+Stable releases publish a generated `CHANGELOG.md` and `releases.json` alongside
+`version.env`, after the required image builds and tests succeed. The daily
+SuperAdmin update notification includes the available notes for every release
+newer than the installed version, including upgrade requirements. The notes are
+read from the advertised release's immutable tag. Releases from before this
+history was introduced may not have notes; missing coverage is labelled.
+The check never installs updates automatically.
