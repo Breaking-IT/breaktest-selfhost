@@ -2,6 +2,23 @@
 
 Historical releases before this release history was introduced may not have notes.
 
+## 26.9.7 — 2026-09-23
+
+### Load-generator updates
+
+- Update the bundled k6 fork to the build based on k6 2.3.0 and the BreakTest runtime to 2026.09.23.
+- Retain Chromium 149 for browser tests after repeated ARM64 benchmarks showed substantially higher memory and CPU use with Chromium 152.
+
+### Metrics ingestion improvements
+
+- Reuse gzip decompression buffers after successful ingestion requests to reduce allocation overhead.
+- Keep tenant database connections warm between traffic bursts and expire idle tenant pools independently. Active requests and requests waiting for a connection keep their pool available; health checks no longer keep idle pools alive.
+
+### Configuration and upgrade
+
+- Add **PG_PROXY_POOL_IDLE_SEC**, defaulting to **300 seconds**, to control tenant pool retention. Longer retention keeps connections warm but retains idle database connections longer. Existing connection limits are unchanged.
+- Finish active tests and run **./full_backup.sh** before **./upgrade.sh**. This release introduces no database schema migrations.
+
 ## 26.9.6 — 2026-09-21
 
 ### Dashboard improvements
