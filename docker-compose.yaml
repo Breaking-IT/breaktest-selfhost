@@ -60,6 +60,13 @@ services:
       - traefik.http.routers.breaktest-frontend.rule=${TRAEFIK_FRONTEND_RULE:-PathPrefix(`/`)}
       - traefik.http.routers.breaktest-frontend.entrypoints=${TRAEFIK_ENTRYPOINTS:-web}
       - traefik.http.routers.breaktest-frontend.priority=1
+      # Each router uses a compression middleware from its own container: Traefik
+      # drops the labels of a starting/unhealthy container, and a router that
+      # references a missing middleware is not served at all.
+      - traefik.http.routers.breaktest-frontend.middlewares=breaktest-frontend-compression
+      - traefik.http.middlewares.breaktest-frontend-compression.compress=true
+      - traefik.http.middlewares.breaktest-frontend-compression.compress.minresponsebodybytes=1024
+      - traefik.http.middlewares.breaktest-frontend-compression.compress.includedcontenttypes=application/json,text/html,text/css,text/javascript,application/javascript,text/plain,text/csv,text/xml,application/xml,image/svg+xml,application/manifest+json
       - traefik.http.routers.breaktest-frontend.tls=${TRAEFIK_TLS:-false}
       - traefik.http.routers.breaktest-frontend.tls.certresolver=${TRAEFIK_CERT_RESOLVER:-letsencrypt}
       - traefik.http.services.breaktest-frontend.loadbalancer.server.port=3001
@@ -101,6 +108,12 @@ services:
       - traefik.http.routers.breaktest-backend.rule=${TRAEFIK_BACKEND_RULE:-PathPrefix(`/api`)}
       - traefik.http.routers.breaktest-backend.entrypoints=${TRAEFIK_ENTRYPOINTS:-web}
       - traefik.http.routers.breaktest-backend.priority=100
+      - traefik.http.routers.breaktest-backend.middlewares=breaktest-backend-compression
+      - traefik.http.middlewares.breaktest-backend-compression.compress=true
+      - traefik.http.middlewares.breaktest-backend-compression.compress.minresponsebodybytes=1024
+      # Allow-list: Traefik matches media types exactly (no image/* wildcards),
+      # and event streams/binary media must never be compressed.
+      - traefik.http.middlewares.breaktest-backend-compression.compress.includedcontenttypes=application/json,text/html,text/css,text/javascript,application/javascript,text/plain,text/csv,text/xml,application/xml,image/svg+xml,application/manifest+json
       - traefik.http.routers.breaktest-backend.tls=${TRAEFIK_TLS:-false}
       - traefik.http.routers.breaktest-backend.tls.certresolver=${TRAEFIK_CERT_RESOLVER:-letsencrypt}
       - traefik.http.services.breaktest-backend.loadbalancer.server.port=3002

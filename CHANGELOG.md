@@ -2,6 +2,36 @@
 
 Historical releases before this release history was introduced may not have notes.
 
+## 26.9.8 — 2026-09-26
+
+### Scenario editing and runtime updates
+
+- Add a guided k6 scenario editor with executor selection, stages, validation and exported action-function selection. Raw options remain available for JavaScript expressions and unsupported configurations. Correct combined load-profile chart stacking and preserve script comments and strings when locating the options to replace.
+- Update the bundled BreakTest engine to **2026.09.25**, refresh the Linux k6 binaries and include metrics listener **1.1.4**. Use native BreakTest transaction metadata to associate samplers with their immediate transaction while preserving sampler labels; Apache JMeter retains its legacy handling.
+- Support random-arrival flags and fractional durations in open-model schedule editing and distribution. Use zero-rate phases for distributed startup offsets, and keep closed-model execution mode synchronized with the selected scenario profile.
+- Enable error screenshots by default for newly created browser performance and synthetic-monitoring scenarios. Existing settings and explicit opt-outs are preserved.
+
+### Reliability and live dashboards
+
+- Validate uploaded test plans before creating runs or provisioning load generators, with actionable errors for unreadable files, invalid JMX and missing archive entrypoints. Correct scenario references when replacing plain JMX files with bundles or back again, preserving workload and CSV settings.
+- Reset the console after failed starts so another attempt or another live run can be opened. Remove failed-run URLs, including failures on runs opened from a link.
+- Fix gaps, oversized initial bars and stale totals in live error charts. Keep sparse bars moving smoothly, preserve animations when values are unchanged, and constrain brush selections to the visible time range.
+- Refresh the notification badge on user activity at most hourly, and update it immediately after notification changes without allowing older requests to restore a stale count. The launch button responds to interaction without continuous idle animation.
+- Show actionable guidance when AWS lacks capacity for the selected instance type or region.
+
+### Database maintenance and self-hosting
+
+- Preserve synthetic-monitoring aggregate refresh jobs across backend restarts and scenario updates. Add background checks for missing or stale aggregates, failed maintenance jobs, index issues and compression backlog.
+- Restore eligible missing refresh and compression policies. Refresh skipped synthetic-monitoring history automatically only when its span is at most one day; larger gaps, missing schema definitions and index repairs require operator maintenance. Existing paused jobs are preserved.
+- Add a SuperAdmin-only **GET /api/admin/database-health** endpoint for the latest maintenance reports. Checks run after startup by default; **DATABASE_HEALTH_ENABLED=false** disables reconciliation and **DATABASE_HEALTH_INTERVAL_SECONDS** enables periodic checks (default **0**, startup only).
+- Enable compression for eligible frontend and API text responses in self-host deployments. Keep frontend routing available during backend restarts by defining each router's compression middleware on its own container.
+- Fix self-host configuration helper compatibility with macOS Bash 3.2.
+
+### Upgrade requirements
+
+- Finish active tests and run **./full_backup.sh** before **./upgrade.sh**. Recreate the application and load-generator containers through the normal upgrade process to receive the runtime and routing changes.
+- This release adds no database schema migrations. Background reconciliation can restore maintenance policies and refresh small historical gaps; inspect database-health reports after upgrading. Larger historical gaps are reported and are not automatically backfilled.
+
 ## 26.9.7 — 2026-09-23
 
 ### Load-generator updates

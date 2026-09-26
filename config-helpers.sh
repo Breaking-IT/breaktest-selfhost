@@ -178,14 +178,15 @@ bt_list_ipv4_iface_addrs() {
     current_iface=""
     output=$(
       ifconfig 2>/dev/null | while IFS= read -r line; do
+        # Parenthesize patterns inside $() for the Bash 3.2 parser (macOS).
         case "$line" in
-          [A-Za-z]*:*)
+          ([A-Za-z]*:*)
             current_iface="${line%%:*}"
             current_iface="${current_iface%% *}"
             ;;
         esac
         case "$line" in
-          *[[:space:]]inet[[:space:]]*|*[[:space:]]inet[[:space:]])
+          (*[[:space:]]inet[[:space:]]*|*[[:space:]]inet[[:space:]])
             prev=""
             ipaddr=""
             for tok in $line; do
