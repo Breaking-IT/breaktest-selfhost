@@ -2,6 +2,33 @@
 
 Historical releases before this release history was introduced may not have notes.
 
+## 26.9.9 — 2026-09-27
+
+### Synthetic monitoring
+
+- Support BreakTest/JMeter scenario archives with their main plan and supporting files. Fix legacy ZIP-based JMX downloads that failed with UTF-8 decoding errors, and reject missing or invalid main files with clearer errors.
+- Pick up updated file selections on the next dispatch and refresh generated plans after interval, duration, thread-group, DNS override or custom-variable changes. Restore missing dependencies and remove obsolete cached files when switching selections.
+- Apply synthetic-monitoring duration limits, metrics listeners and DNS overrides to archived plans.
+
+### Backup and restore
+
+- Back up up to **100 selected tests** in one ZIP and restore them into the selected project. Existing single-test archives remain supported. Progress now reports exported data volume and separate archive/download progress.
+- Validate restore archive paths, test folders and metric tables before extraction, and stream metrics directly into PostgreSQL without executing archive-supplied paths. Restrict job status, results and downloads to the initiating editor/admin and customer.
+- Report metric export, import and finalization failures instead of silently reporting success. Failed metric imports roll back per test; if a multi-test restore stops, its status identifies completed tests and the failed test number. Earlier completed tests remain restored.
+- Preserve the original test when its ID already exists in another customer or project by creating a new test ID and remapping imported metrics. Repeated restores replace aggregate rows instead of duplicating them.
+- Stream restore uploads to disk. Restores accept at most **100 tests**, **1,200 ZIP entries**, and **10 GiB** each for the uploaded archive and its expanded ZIP entries. Archives still need to match the target metrics schema.
+
+### Cloud generator setup and self-hosting
+
+- Simplify provider selection and use compact themed dropdowns with aligned CPU, memory and price columns. Sort by clicking price headers, show spot discounts including Azure, and retain selected unit prices and the total hourly estimate for all generators.
+- Reduce steady-state MongoDB health checks from every **10 seconds to 60 seconds**, while checking every **5 seconds during startup** and using **3 failure retries**. This reduces mongosh launches by roughly 83%; unhealthy detection takes longer.
+
+### Upgrade requirements
+
+- Finish active tests and run **./full_backup.sh** before **./upgrade.sh**. Upgrade the backend and load-generator containers together to receive archive support and settings-based cache refresh; recreate containers to apply the health-check changes.
+- This release adds no database schema migrations. Metrics imports are transactional per test, but metadata updates and subsequent finalization are not one distributed transaction. Inspect failed restore status before retrying a partially completed archive.
+- Synthetic-monitoring intervals still do not start overlapping runs on the same generator. A run that lasts longer than its interval can delay the next execution.
+
 ## 26.9.8 — 2026-09-26
 
 ### Scenario editing and runtime updates

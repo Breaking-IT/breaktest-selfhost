@@ -143,9 +143,10 @@ services:
       # the host runs out of disk during first boot, so verify the credentials
       # that the backend will actually use.
       test: ["CMD-SHELL", "mongosh --quiet --host 127.0.0.1 --username \"$${MONGO_INITDB_ROOT_USERNAME}\" --password \"$${MONGO_INITDB_ROOT_PASSWORD}\" --authenticationDatabase admin --eval \"db.adminCommand({ping: 1}).ok\" | grep -q '^1$'"]
-      interval: 10s
+      interval: 60s
+      start_interval: 5s
       timeout: 5s
-      retries: 5
+      retries: 3
       start_period: 30s
     networks:
       - breaktest-network
