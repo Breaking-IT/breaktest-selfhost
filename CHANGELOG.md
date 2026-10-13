@@ -2,6 +2,46 @@
 
 Historical releases before this release history was introduced may not have notes.
 
+## 26.10.0 — 2026-10-13
+
+### Scheduled tests
+
+- Schedule scenarios once or daily, weekly and monthly in a selected time zone. Preview upcoming runs, run a schedule immediately, and inspect its history from Setup → Schedules or create a schedule from the Console.
+- Configure overlap and busy-generator policies and send start, finish, failure and SLO notifications through existing notification channels. Completion emails include run metrics, SLO results and transaction summaries.
+- Scheduled starts recheck the owner's access and license. Runs beyond the lateness allowance are recorded as missed instead of starting a backlog after an outage. The default allowance is 15 minutes.
+
+### BreakTest scenarios and reusable profiles
+
+- Import scenarios and profiles from sectioned BreakTest plans. Re-uploading a plan identifies unchanged items and offers overwrite or copy for changed items.
+- Compose scenarios from ordered workload rows, including repeated use of a script with different load settings and profiles. Generated plans use the platform's scenarios and selected profiles while retaining the plan's Shared Profile.
+- Create project profiles containing variables, CSV files with split/shuffle settings, and supporting files for BreakTest, JMeter and k6 scenarios. A scenario's own variables and files take precedence. The project default is preselected only for new scenarios; existing scenarios without a profile retain their behavior.
+- Preserve profile references during file updates, scenario copies and customer backup/restore, and show the profile used in the Console and test summary.
+
+### Customer licensing and administration
+
+- SuperAdmins can choose the installation license or a customer's own breaktest.io license for customer users, and set customer limits for virtual users, generators, daily test starts and synthetic-monitoring runs. Customer Admins can manage their customer's license when required.
+- Grant test-day budgets with optional UTC availability dates. The first accepted load test opens a 24-hour window; later starts in that window do not consume another day. Synthetic monitoring has a separate allowance. Existing customers default to the installation license, with no new provider caps until configured.
+- Keep login, existing-customer access, results and test preparation available when licensing is restricted. Starting tests and monitors still requires authorization; without service-provider entitlement, only the default customer can run tests. Interactive SuperAdmin starts use installation limits and bypass customer budgets.
+- Improve customer settings and usage displays. Prevent repeated customer/external-database form submissions, trim new customer names and display creation failures.
+
+### Load generators and ingestion
+
+- Select cloud regions on a world map with provider markers, a dropdown fallback and improved touch scrolling. Guide users through region and compute selection in generator setup.
+- Update load generators to BreakTest 2026.10.06 and Java 27. Image builds download custom k6 release `breakingit-20261013T131608Z` for Linux amd64 or arm64; local k6 binaries are no longer required to build images.
+- Reduce PostgreSQL ingestion overhead with an optimized gzip decoder and larger COPY chunks. Strip debugging information from the pg-proxy container binary.
+
+### Platform diagnostics
+
+- Add an operator-only Grafana dashboard for backend traces, API latency, database operations and test-start diagnostics in deployments with Tempo configured. Repository Compose deployments can enable it with `OPENTELEMETRY_ENABLED=true`; the self-host bundle does not include a Tempo service.
+
+### Upgrade requirements and limitations
+
+- Finish active tests and run **./full_backup.sh** before **./upgrade.sh**. Upgrade the backend and load generators together for sectioned plans and profiles; sectioned plans require BreakTest 2026.09.30 or newer.
+- The bundle updates TimescaleDB from **2.30.1 to 2.30.2**, remaining on **PostgreSQL 18**, and Grafana to **13.2.3**. Startup migrations update shared/template and internal customer TimescaleDB extensions. Back up databases before allowing these migrations to run.
+- Custom image builds need access to **https://www.breakingit.nl/files/** for runtime downloads, including k6. Pulling published images does not require downloading these binaries separately.
+- Sequential workloads execute independently on each generator, without a cross-generator barrier. Expression-based thread counts are not divided across generators, and virtual-user accounting sums workload rows even when they execute sequentially.
+- For existing repository deployments with tracing enabled, restart Tempo and Grafana to load the updated tracing configuration. The dashboard is for platform operators and is not provisioned into customer organizations.
+
 ## 26.9.9 — 2026-09-27
 
 ### Synthetic monitoring
