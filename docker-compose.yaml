@@ -2,7 +2,7 @@ name: breaktest
 
 services:
   traefik:
-    image: traefik:v3.7.13
+    image: traefik:v3.7.15
     restart: unless-stopped
     command:
       - --api.dashboard=false
@@ -325,7 +325,7 @@ services:
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
 
   grafana:
-    image: grafana/grafana:13.2.3
+    image: grafana/grafana:13.2.4
     profiles:
       - grafana
     user: "472:472"

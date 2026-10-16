@@ -2,6 +2,14 @@
   "schema_version": 1,
   "releases": [
     {
+      "version": "26.10.1",
+      "date": "2026-10-16",
+      "source_commit": "d1f920ef37d48e0a14e5ffea181279fe80e9442c",
+      "previous_version": "26.10.0",
+      "previous_source_commit": "708ed27c8b63b55ff861092e26f241f04c81202f",
+      "notes": "### Runtime updates\n\n- Update the BreakTest engine in load generators from **2026.10.06** to **2026.10.16**.\n- Update the self-host bundle to **Grafana 13.2.4** and **Traefik 3.7.15**.\n- Reduce backend and load-generator container layer overhead while retaining non-root execution and writable test and cache directories.\n\n### Upgrading\n\n- Finish active tests and run **./full_backup.sh** before **./upgrade.sh**. Update load generators to use the new BreakTest engine.\n- No new database migrations or configuration changes are required by this release."
+    },
+    {
       "version": "26.10.0",
       "date": "2026-10-13",
       "source_commit": "708ed27c8b63b55ff861092e26f241f04c81202f",
