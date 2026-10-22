@@ -127,7 +127,9 @@ services:
       - no-new-privileges:true
 
   mongodb:
-    image: mongo:8.3.9
+    # Legacy upgrade.sh continues executing old code after git pull. Keep its
+    # fallback safe; updated scripts select/persist 9.0.4 after FCV preparation.
+    image: mongo:${MONGODB_VERSION:-8.3.9}
     restart: unless-stopped
     command: ["mongod", "--logpath", "/var/log/mongodb/mongodb.log"]
     environment:

@@ -8,6 +8,113 @@ This repository contains the public deployment bundle for running BreakTest from
 > commits or pull requests against this repository will be overwritten by the
 > next release — please report issues to BreakTest support instead.
 
+## Prepare MongoDB 8.3.9 for 9.0.4
+
+The updated lifecycle scripts target MongoDB 9.0.4 (verified on 2026-10-21).
+They inspect the existing standalone server before Compose removes its
+container. FCV is server-wide: customers on the same server share it. Each
+independent installation is checked separately.
+
+For customers upgrading from a bundle whose `upgrade.sh` predates staged
+MongoDB upgrades, use this one-time bootstrap:
+
+```bash
+git pull --ff-only && ./upgrade.sh --no-bundle-update
+```
+
+An already-running old script continues its old code after downloading a new
+script. It cannot run the new preflight during that invocation. To keep this
+path safe, Compose defaults to 8.3.9 when no `MONGODB_VERSION` is configured.
+If a customer runs only the old `upgrade.sh`, that first invocation safely
+updates the backend on MongoDB 8.3.9; migration 17 prepares FCV 8.3. Run the
+now-updated `upgrade.sh` again to finish the 9.0.4 upgrade. Updated launchers
+restart themselves after `git pull`, so subsequent bundle upgrades run the
+new code immediately.
+
+After preflight succeeds, the updated scripts persist `MONGODB_VERSION=9.0.4`
+in `config.env` before starting MongoDB. This prevents later Compose calls from
+selecting the 8.3 fallback. An explicit 8.3.9 pin is respected; remove it or
+select 9.0.4 when ready. The upgrade waits for service health before cleaning
+up superseded images.
+
+The automatic sequence is:
+
+- An 8.2 server at FCV 8.2 first starts MongoDB 8.3.9 on the same volume.
+- An 8.3 server at FCV 8.2 advances to FCV 8.3, which is read back and verified.
+- An 8.3 server already at FCV 8.3 proceeds directly to MongoDB 9.0.4.
+- A 9.0 server at FCV 8.3 or 9.0 is left prepared; it is never downgraded.
+- A fresh installation without an existing data volume starts 9.0.4 directly.
+
+Authentication failures, unsupported versions, replica sets/sharded deployments,
+and unfinished FCV transitions stop the upgrade. After each verified check and
+successful start, the scripts record the server version and FCV in
+`.breaktest-mongodb-state` inside the MongoDB data volume, so `./stop.sh`
+followed by `./start.sh` can recover the previous server. The marker selects
+only the recovery binaries: the script starts that version and reads the live
+FCV before allowing an upgrade. A stale marker never authorizes the target
+version by itself. If recovery fails, the upgrade stops without trying newer
+binaries. If a data volume exists without
+its container and without a recorded FCV of 8.3 or 9.0 (for example, an older
+installation removed by `docker compose down` before running the updated
+scripts), the script refuses to guess which binaries can safely open it. Start MongoDB
+with its known previous version first, then retry. For a known 8.3 deployment,
+set `MONGODB_VERSION=8.3.9`, run `start.sh`, then select 9.0.4 and run it again.
+Do not select an older version for a volume already upgraded to 9.0.
+
+Platform migration 17 remains an idempotent fallback and records completion
+when the backend starts. Deploying a separate intermediate backend release is
+not required. FCV 9.0 remains an explicit operator action for existing databases.
+No application document rewrite is required by the compatibility changes
+identified in the current backend queries.
+
+1. Schedule a maintenance window and finish active tests. Take a consistent
+   database backup and test restoring it into an isolated deployment. Retain
+   the deployment configuration and application images. Never copy a live
+   WiredTiger data directory as a backup.
+2. Test the upgrade in staging, then select `MONGODB_VERSION=9.0.4` in
+   `config.env` (or let the updated scripts select it). Use `./upgrade.sh` or `./start.sh` so the
+   preflight runs; direct `docker compose up` bypasses this protection.
+3. Watch for the verified FCV 8.3 message before the 9.0 container starts. If
+   preparation fails, resolve the reported state and retry. The script does not
+   continue to 9.0 or automatically roll back failed database transitions.
+4. Check the running database:
+
+   ```bash
+   docker exec mongodb mongosh --quiet --eval '
+     const admin = db.getSiblingDB("admin");
+     if (!admin.auth(process.env.MONGO_INITDB_ROOT_USERNAME, process.env.MONGO_INITDB_ROOT_PASSWORD)) throw new Error("Authentication failed");
+     printjson({server: db.version(), fcv: admin.runCommand({getParameter: 1, featureCompatibilityVersion: 1})});
+   '
+   ```
+
+5. Verify MongoDB health and logs, backend health, login, customer/scenario/test
+   reads and writes, a short test run, and backup/restore with tools supporting
+   MongoDB 9.0. For upgraded databases, expect server 9.0.4 and FCV 8.3;
+   fresh databases start at FCV 9.0. Retain FCV 8.3 during a burn-in period.
+6. Once the deployment is validated and a return to 8.3 is no longer expected,
+   explicitly enable the 9.0 features:
+
+   ```bash
+   docker exec mongodb mongosh --quiet --eval '
+     const admin = db.getSiblingDB("admin");
+     if (!admin.auth(process.env.MONGO_INITDB_ROOT_USERNAME, process.env.MONGO_INITDB_ROOT_PASSWORD)) throw new Error("Authentication failed");
+     const result = admin.runCommand({setFeatureCompatibilityVersion: "9.0", confirm: true});
+     if (!result.ok) throw new Error(JSON.stringify(result));
+     printjson(result);
+   '
+   ```
+
+Do not roll back by simply changing the image tag after enabling FCV 9.0.
+Follow MongoDB's downgrade procedure, including removing incompatible features
+and lowering FCV while the 9.0 server is still running, or restore the tested
+pre-upgrade backup into a separate 8.3 deployment. Even during burn-in, use the
+documented downgrade checks and a clean shutdown before replacing binaries.
+
+References: [9.0 release notes](https://www.mongodb.com/docs/manual/release-notes/9.0/),
+[standalone upgrade](https://www.mongodb.com/docs/manual/release-notes/9.0-upgrade-standalone/),
+[compatibility changes](https://www.mongodb.com/docs/manual/release-notes/9.0-compatibility/),
+[driver compatibility](https://www.mongodb.com/docs/drivers/compatibility/?driver-language=python&python-driver-framework=pymongo).
+
 ## Requirements
 
 - Docker Engine

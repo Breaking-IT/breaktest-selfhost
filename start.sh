@@ -3,6 +3,7 @@ set -euo pipefail
 
 # shellcheck source=config-helpers.sh
 source "$(dirname "$0")/config-helpers.sh"
+source "$(dirname "$0")/mongodb-upgrade.sh"
 
 SHOW_LOGS=false
 RESTART_SERVICE=""
@@ -347,6 +348,12 @@ if profile_contains "${COMPOSE_PROFILES:-}" "loadgenerator" && [ "${LOAD_GENERAT
   COMPOSE_ARGS+=(-f docker-compose.loadgenerator-container-mode.yaml)
 fi
 
+if [ -z "$RESTART_SERVICE" ] || [ "$RESTART_SERVICE" = mongodb ]; then
+  export MONGODB_VERSION="${MONGODB_VERSION:-9.0.4}"
+  bt_prepare_mongodb_upgrade "$PROJECT_NAME" $DOCKER_COMPOSE "${COMPOSE_ARGS[@]}"
+  bt_set_env_value config.env MONGODB_VERSION "$MONGODB_VERSION"
+fi
+
 UP_ARGS=(up -d)
 if [ "$PULL_IMAGES" = false ]; then
   UP_ARGS+=(--pull never)
@@ -362,6 +369,10 @@ if [ -n "$RESTART_SERVICE" ]; then
   echo "Skipping full-stack health wait for service restart: $RESTART_SERVICE"
 else
   wait_for_required_services
+fi
+if [ -z "$RESTART_SERVICE" ] || [ "$RESTART_SERVICE" = mongodb ]; then
+  # Keeps the next start verifiable after stop.sh removes the MongoDB container.
+  bt_record_mongodb_upgrade_state "$PROJECT_NAME" $DOCKER_COMPOSE "${COMPOSE_ARGS[@]}"
 fi
 
 if [ "$SHOW_LOGS" = true ]; then

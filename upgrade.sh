@@ -8,6 +8,7 @@ source "$(dirname "$0")/upgrade-guard.sh"
 
 PROJECT_NAME=""
 UPDATE_BUNDLE=true
+ORIGINAL_ARGS=("$@")
 
 usage() {
   cat <<'EOF'
@@ -158,6 +159,10 @@ if [ "$UPDATE_BUNDLE" = true ]; then
   if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     echo "Updating bundle..."
     git pull --ff-only
+    # Git replaces the script on disk, but this shell is still executing the
+    # old file. Restart before loading config or touching any running services.
+    echo "Bundle updated; restarting the upgrade with the downloaded scripts..."
+    exec bash "$0" "${ORIGINAL_ARGS[@]}" --no-bundle-update
   else
     echo "Warning: not a git checkout; skipping bundle update. Download the latest bundle to update the compose file and pinned version."
   fi
@@ -183,6 +188,7 @@ if [ -f version.env ]; then
 fi
 # shellcheck disable=SC1091
 source config.env
+MONGODB_VERSION="${MONGODB_VERSION:-9.0.4}"
 bt_validate_postgres_wal_settings
 set +a
 bt_apply_image_version_overrides config.env
@@ -252,7 +258,14 @@ if profile_contains "${COMPOSE_PROFILES:-}" "loadgenerator" && [ "${LOAD_GENERAT
 fi
 # Recheck after image pulls/preparation, immediately before container recreation.
 bt_confirm_upgrade_interruptions "$PROJECT_NAME"
-$DOCKER_COMPOSE "${ENV_ARGS[@]}" "${COMPOSE_FILES[@]}" -p "$PROJECT_NAME" up -d --remove-orphans
+# Load after bundle update so the preflight matches the new Compose target.
+source "$(dirname "$0")/mongodb-upgrade.sh"
+bt_prepare_mongodb_upgrade "$PROJECT_NAME" $DOCKER_COMPOSE "${ENV_ARGS[@]}" "${COMPOSE_FILES[@]}" -p "$PROJECT_NAME"
+# Persist only after preparation succeeds, so later starts/direct Compose calls
+# cannot select the compatibility fallback and downgrade the database.
+bt_set_env_value config.env MONGODB_VERSION "$MONGODB_VERSION"
+$DOCKER_COMPOSE "${ENV_ARGS[@]}" "${COMPOSE_FILES[@]}" -p "$PROJECT_NAME" up -d --remove-orphans --wait --wait-timeout "${BREAKTEST_STARTUP_HEALTH_TIMEOUT_SECONDS:-300}"
+bt_record_mongodb_upgrade_state "$PROJECT_NAME" $DOCKER_COMPOSE "${ENV_ARGS[@]}" "${COMPOSE_FILES[@]}" -p "$PROJECT_NAME"
 $DOCKER_COMPOSE "${ENV_ARGS[@]}" "${COMPOSE_FILES[@]}" -p "$PROJECT_NAME" ps
 
 # Retain the old images if pull/start fails so operators can roll back. Once

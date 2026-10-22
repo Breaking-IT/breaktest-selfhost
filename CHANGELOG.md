@@ -2,6 +2,26 @@
 
 Historical releases before this release history was introduced may not have notes.
 
+## 26.10.2 — 2026-10-22
+
+### Metrics ingestion and load generators
+
+- Replace the Go PostgreSQL proxy with a Rust implementation that reduces CPU use in ingestion benchmarks and keeps multipart metric batches atomic, including when requests are canceled or connections fail.
+- Enable zstd compression by default for JMeter and k6 metrics, with gzip fallback. JMeter retains compressed queued batches and compact metadata to reduce memory use while waiting for uploads.
+- Update the load-generator engine to **2026.10.21** and the JMeter TimescaleDB listener to **1.1.5**.
+
+### Scenarios and storage reporting
+
+- Reject missing or disabled workload references before saving a scenario and show actionable validation errors. Preserve synthetic-monitoring intervals and think-time settings when editing other fields.
+- Include continuous aggregates, ordinary tables, indexes and database overhead in storage reporting for a more complete view of disk usage.
+
+### Upgrading
+
+- Finish active tests and run **./full_backup.sh** before upgrading. Update the backend, proxy and load generators together during a maintenance window.
+- Updated self-host launchers target **MongoDB 9.0.4** and stage supported standalone installations through MongoDB 8.3.9 and feature compatibility version (FCV) 8.3 when needed. Migration 17 also prepares FCV 8.3. Existing upgraded databases remain at FCV 8.3; enabling FCV 9 is a separate, explicit step after validation. Explicit MongoDB version pins are respected.
+- For an older self-host bundle, after taking a backup, use `git pull --ff-only && ./upgrade.sh --no-bundle-update` so the updated launcher performs the upgrade. Use the launchers rather than direct Docker Compose commands. Replica sets and sharded deployments require a separately planned upgrade. See the [MongoDB upgrade and recovery instructions](https://github.com/Breaking-IT/breaktest-selfhost/blob/main/README.md) before upgrading; changing an image tag alone is not a safe database rollback.
+- Custom clients sending zstd metric batches must use a window of at most **256 KiB**, or use gzip. The bundled JMeter and k6 clients already meet this limit.
+
 ## 26.10.1 — 2026-10-16
 
 ### Runtime updates
