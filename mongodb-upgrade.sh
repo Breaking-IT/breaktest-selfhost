@@ -60,6 +60,28 @@ bt_record_mongodb_upgrade_state() {
   return 0
 }
 
+# A successful Compose invocation alone does not prove the requested binaries ran.
+bt_finish_mongodb_upgrade() {
+  shift
+  local target container state version running requested
+  target=$("$@" config --images mongodb) || return 1
+  container=$("$@" ps -q mongodb) || return 1
+  case "$container" in
+    ''|*$'\n'*) echo 'Expected one running MongoDB container.' >&2; return 1 ;;
+  esac
+  state=$(bt_wait_mongodb_state "$container") || return 1
+  version="${state%|*}"
+  # Compare image IDs, not tag text: short tags, mirrors and digests name the same binaries.
+  running=$(docker inspect -f '{{.Image}}' "$container") || return 1
+  requested=$(docker image inspect -f '{{.Id}}' "$target") || return 1
+  if [ "$running" != "$requested" ]; then
+    echo "MongoDB upgrade incomplete: requested $target, running $version." >&2
+    return 1
+  fi
+  bt_write_mongodb_marker "$container" "$state" || return 1
+  echo "MongoDB verified: server $version, FCV ${state#*|}."
+}
+
 bt_prepare_mongodb_upgrade() {
   local project="$1"
   shift
@@ -87,7 +109,11 @@ bt_prepare_mongodb_upgrade() {
       # The marker only identifies binaries to try; its FCV may be stale.
       # Recreate the service with those binaries, then use the live checks below.
       marker=$(bt_read_mongodb_marker "$volumes" "$target")
-      if [[ "$marker" =~ ^(8\.3\.[0-9]+|9\.0\.[0-9]+)\|(8\.3|9\.0)$ ]]; then
+      if [ -z "$marker" ] && [ -n "${MONGODB_RECOVERY_VERSION:-}" ]; then
+        # Explicit operator evidence for legacy volumes, never a guessed downgrade.
+        marker="$MONGODB_RECOVERY_VERSION|unknown"
+      fi
+      if [[ "$marker" =~ ^(8\.[23]\.[0-9]+|9\.0\.[0-9]+)\|(8\.[23]|9\.0|unknown)$ ]]; then
         version="${marker%|*}"
         echo "MongoDB upgrade preflight: recovering server $version to verify live FCV on volume $volumes."
         local recovery_target
@@ -103,7 +129,7 @@ bt_prepare_mongodb_upgrade() {
           return 1
         fi
       else
-        echo "MongoDB data exists without its container${marker:+ (last verified: $marker)}. Start it with its previous MongoDB version first, then retry the staged upgrade." >&2
+        echo "MongoDB data exists without its container${marker:+ (last verified: $marker)}. Retry with MONGODB_RECOVERY_VERSION set to its known previous version (for example MONGODB_RECOVERY_VERSION=8.3.9 ./start.sh)." >&2
         return 1
       fi
     else

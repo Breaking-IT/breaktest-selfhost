@@ -212,6 +212,8 @@ services:
       - no-new-privileges:true
 
   pg-proxy:
+    # Forward SIGTERM to the proxy as a normal process (Linux treats PID 1 specially).
+    init: true
     image: ${BREAKTEST_IMAGE_REGISTRY:-breakingit}/breaktest-pg-proxy:${BREAKTEST_PG_PROXY_VERSION:-${BREAKTEST_VERSION:?BREAKTEST_VERSION is not set - run via start.sh or pass --env-file version.env}}
     restart: unless-stopped
     environment:

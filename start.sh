@@ -338,6 +338,9 @@ else
   COMPOSE_ARGS=(--env-file config.env "${COMPOSE_ARGS[@]}")
 fi
 
+# Select the staged target before pulling; the Compose fallback is for old launchers.
+export MONGODB_VERSION="${MONGODB_VERSION:-9.0.4}"
+
 if [ "$PULL_IMAGES" = true ]; then
   $DOCKER_COMPOSE "${COMPOSE_ARGS[@]}" pull
   check_free_disk_space
@@ -371,8 +374,8 @@ else
   wait_for_required_services
 fi
 if [ -z "$RESTART_SERVICE" ] || [ "$RESTART_SERVICE" = mongodb ]; then
-  # Keeps the next start verifiable after stop.sh removes the MongoDB container.
-  bt_record_mongodb_upgrade_state "$PROJECT_NAME" $DOCKER_COMPOSE "${COMPOSE_ARGS[@]}"
+  # Verify the requested binaries and save recovery state in the data volume.
+  bt_finish_mongodb_upgrade "$PROJECT_NAME" $DOCKER_COMPOSE "${COMPOSE_ARGS[@]}"
 fi
 
 if [ "$SHOW_LOGS" = true ]; then

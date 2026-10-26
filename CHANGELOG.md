@@ -2,6 +2,25 @@
 
 Historical releases before this release history was introduced may not have notes.
 
+## 26.10.3 — 2026-10-26
+
+### Database storage
+- Compress historical request aggregates, synthetic monitoring aggregates, and shared monitoring data for both new and existing installations. Recent data stays writable: request aggregates use a two-hour compression window, synthetic aggregates 30 days, and shared monitoring seven days.
+- Reclaim leftover empty storage from compressed chunks in background database maintenance. Cleanup preserves live data and skips busy chunks; disk usage may decrease gradually after startup.
+
+### Profiles
+- Clone a profile, including its variables, file references, and imported JMeter elements, into an editable copy.
+- Offer embedded profile and scenario imports when uploading a new version of a file already used by existing scenarios or profiles.
+
+### Deployment and recovery
+- Preserve stopped containers so MongoDB recovery can reuse the previous server version, and verify that startup actually runs the requested MongoDB image.
+- Improve recovery after containers have been removed. Legacy volumes without a saved version can be recovered using the documented MONGODB_RECOVERY_VERSION setting with their known previous server version.
+- Improve active-test detection during upgrades and graceful service shutdown.
+- Update the load generator to 2026.10.26.
+
+### Upgrading
+Back up the installation and finish active tests before running the updated self-host upgrade script. Database compression configuration is applied automatically at backend startup; historical compression and storage cleanup can take additional time and disk I/O. Existing custom compression policies are preserved. Use the updated self-host scripts for the MongoDB recovery improvements.
+
 ## 26.10.2 — 2026-10-22
 
 ### Metrics ingestion and load generators

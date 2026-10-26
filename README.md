@@ -48,18 +48,27 @@ The automatic sequence is:
 Authentication failures, unsupported versions, replica sets/sharded deployments,
 and unfinished FCV transitions stop the upgrade. After each verified check and
 successful start, the scripts record the server version and FCV in
-`.breaktest-mongodb-state` inside the MongoDB data volume, so `./stop.sh`
-followed by `./start.sh` can recover the previous server. The marker selects
-only the recovery binaries: the script starts that version and reads the live
-FCV before allowing an upgrade. A stale marker never authorizes the target
-version by itself. If recovery fails, the upgrade stops without trying newer
-binaries. If a data volume exists without
-its container and without a recorded FCV of 8.3 or 9.0 (for example, an older
-installation removed by `docker compose down` before running the updated
-scripts), the script refuses to guess which binaries can safely open it. Start MongoDB
-with its known previous version first, then retry. For a known 8.3 deployment,
-set `MONGODB_VERSION=8.3.9`, run `start.sh`, then select 9.0.4 and run it again.
-Do not select an older version for a volume already upgraded to 9.0.
+`.breaktest-mongodb-state` inside the MongoDB data volume. `./stop.sh` now
+stops all profiles without removing containers, retaining the original MongoDB
+binaries for the next preflight. Startup verifies that the running MongoDB version
+matches the requested image before reporting success.
+
+If containers are removed manually with `docker compose down`, the saved marker
+selects the recovery binaries. The script starts that version and reads the live
+FCV before allowing an upgrade, including an unfinished preparation at FCV 8.2.
+A stale marker never authorizes the target version by itself.
+
+For a legacy volume with neither a container nor a marker, supply the known
+previous server version once. For the office installation previously running 8.3.9:
+
+```bash
+MONGODB_RECOVERY_VERSION=8.3.9 ./start.sh
+```
+
+The recovery override selects only the initial binaries; the normal staged
+upgrade then runs automatically. It does not persist an 8.3 target in config.env.
+Unknown or unsupported versions are refused instead of guessed. Do not select
+an older version for a volume already upgraded to 9.0.
 
 Platform migration 17 remains an idempotent fallback and records completion
 when the backend starts. Deploying a separate intermediate backend release is

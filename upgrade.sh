@@ -265,7 +265,7 @@ bt_prepare_mongodb_upgrade "$PROJECT_NAME" $DOCKER_COMPOSE "${ENV_ARGS[@]}" "${C
 # cannot select the compatibility fallback and downgrade the database.
 bt_set_env_value config.env MONGODB_VERSION "$MONGODB_VERSION"
 $DOCKER_COMPOSE "${ENV_ARGS[@]}" "${COMPOSE_FILES[@]}" -p "$PROJECT_NAME" up -d --remove-orphans --wait --wait-timeout "${BREAKTEST_STARTUP_HEALTH_TIMEOUT_SECONDS:-300}"
-bt_record_mongodb_upgrade_state "$PROJECT_NAME" $DOCKER_COMPOSE "${ENV_ARGS[@]}" "${COMPOSE_FILES[@]}" -p "$PROJECT_NAME"
+bt_finish_mongodb_upgrade "$PROJECT_NAME" $DOCKER_COMPOSE "${ENV_ARGS[@]}" "${COMPOSE_FILES[@]}" -p "$PROJECT_NAME"
 $DOCKER_COMPOSE "${ENV_ARGS[@]}" "${COMPOSE_FILES[@]}" -p "$PROJECT_NAME" ps
 
 # Retain the old images if pull/start fails so operators can roll back. Once
