@@ -245,6 +245,32 @@ backup_grafana() {
     [[ -s $output_file ]] || die 'Grafana backup is empty'
 }
 
+# Sealed BreakTest DB bundles are immutable; a live run is copied from its last
+# checkpoint files and reopens with the store's normal restart recovery.
+backup_breaktest_db() {
+    local volume_name=$1
+    local output_file="$BACKUP_DIR/breaktest_db_data.tar"
+
+    if ! docker volume inspect "$volume_name" >/dev/null 2>&1; then
+        log "BreakTest DB volume not found: $volume_name; skipping BreakTest DB backup"
+        return 0
+    fi
+    log 'Backing up BreakTest DB volume'
+    # Bundles are already zstd-compressed; do not compress them again.
+    docker run --rm -v "$volume_name":/source:ro alpine:latest \
+        tar cf - -C /source --exclude='./.incoming-*' --exclude='./.deleted-*' . >"$output_file" 2>/dev/null \
+        || die 'BreakTest DB backup failed'
+    [[ -s $output_file ]] || die 'BreakTest DB backup is empty'
+}
+
+breaktest_db_volume_bytes() {
+    local volume_name=$1 kib
+    docker volume inspect "$volume_name" >/dev/null 2>&1 || { printf '0\n'; return 0; }
+    kib=$(docker run --rm -v "$volume_name":/source:ro alpine:latest du -sk /source 2>/dev/null | awk '{ print $1 }')
+    [[ $kib =~ ^[0-9]+$ ]] || return 1
+    printf '%s\n' "$((kib * 1024))"
+}
+
 backup_mongodb() {
     local output_file="$BACKUP_DIR/mongodb_export.archive.gz"
 
@@ -476,6 +502,9 @@ preflight_disk_space() {
     [[ $available_kb =~ ^[0-9]+$ ]] \
         || die 'invalid available disk space reported for backup path'
     available_bytes=$((available_kb * 1024))
+    size_bytes=$(breaktest_db_volume_bytes "$BREAKTEST_DB_VOLUME") \
+        || die 'failed to determine BreakTest DB volume size'
+    total_database_bytes=$((total_database_bytes + size_bytes))
     required_bytes=$((total_database_bytes + BACKUP_DISK_HEADROOM_GB * gib))
 
     log "Disk preflight: $(((available_bytes + gib - 1) / gib)) GiB available; $(((required_bytes + gib - 1) / gib)) GiB required (${BACKUP_DISK_HEADROOM_GB} GiB headroom)"
@@ -579,6 +608,7 @@ run_retention() {
 }
 
 COMPOSE_PROJECT_NAME=${BREAKTEST_COMPOSE_PROJECT_NAME:-$(basename "$(pwd -P)")}
+BREAKTEST_DB_VOLUME="${BREAKTEST_DB_VOLUME_NAME:-${COMPOSE_PROJECT_NAME}_breaktest_results}"
 backup_config_env
 validate_postgres_tools
 
@@ -604,6 +634,7 @@ preflight_disk_space
 
 backup_grafana "${COMPOSE_PROJECT_NAME}_grafana_data"
 backup_mongodb
+backup_breaktest_db "$BREAKTEST_DB_VOLUME"
 
 tar -cf "$PARTIAL_TARBALL" -C "$BACKUP_PATH" "$BACKUP_BASENAME" \
     >/dev/null 2>&1 || die 'failed to create partial tar archive'
@@ -636,6 +667,9 @@ if [[ -s "$BACKUP_DIR/grafana_data.tar.gz" ]]; then
     verify_member_once "$PARTIAL_TARBALL" 'grafana_data.tar.gz'
 fi
 verify_member_once "$PARTIAL_TARBALL" 'mongodb_export.archive.gz'
+if [[ -s "$BACKUP_DIR/breaktest_db_data.tar" ]]; then
+    verify_member_once "$PARTIAL_TARBALL" 'breaktest_db_data.tar'
+fi
 if ((${#DB_NAMES[@]} > 0)); then
     for dbname in "${DB_NAMES[@]}"; do
         verify_member_once "$PARTIAL_TARBALL" "${dbname}_backup.dump"

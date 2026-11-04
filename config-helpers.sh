@@ -2,6 +2,9 @@
 
 # Shared public URL and TLS configuration for the self-host lifecycle scripts.
 
+# shellcheck source=breaktest-db.sh
+source "$(dirname "${BASH_SOURCE[0]}")/breaktest-db.sh"
+
 bt_validate_postgres_wal_settings() {
   local wal_level="${POSTGRES_WAL_LEVEL:-minimal}"
   local senders="${POSTGRES_MAX_WAL_SENDERS:-0}"
@@ -672,6 +675,7 @@ bt_apply_image_version_overrides() {
   export BREAKTEST_PG_PROXY_VERSION="${BREAKTEST_PG_PROXY_VERSION:-$version}"
   export BREAKTEST_AI_ASSISTANT_VERSION="${BREAKTEST_AI_ASSISTANT_VERSION:-$version}"
   export BREAKTEST_LOADGENERATOR_VERSION="${BREAKTEST_LOADGENERATOR_VERSION:-$version}"
+  export BREAKTEST_DB_VERSION="${BREAKTEST_DB_VERSION:-$version}"
 
   if grep -q '^BREAKTEST_VERSION=..*' "$config_file"; then
     export BREAKTEST_BACKEND_VERSION="$version"
@@ -679,6 +683,7 @@ bt_apply_image_version_overrides() {
     export BREAKTEST_PG_PROXY_VERSION="$version"
     export BREAKTEST_AI_ASSISTANT_VERSION="$version"
     export BREAKTEST_LOADGENERATOR_VERSION="$version"
+    export BREAKTEST_DB_VERSION="$version"
   fi
 }
 
@@ -957,4 +962,32 @@ bt_prepare_loadgenerator() {
       return 1
       ;;
   esac
+}
+
+# Opt-in storage service; producer routes are public, administrative routes stay internal.
+bt_prepare_breaktest_db() {
+  local enabled
+  enabled=$(bt_breaktest_db_enabled_value) || return 1
+  # Persist the normalised flag in place of the former preview flag, so Compose and
+  # the source-built backend (which reads config.env directly) see the same value.
+  if [ -f config.env ] && { grep -q '^BREAKTEST_DB_APPLICATION_PREVIEW=' config.env ||
+      { grep -q '^BREAKTEST_DB_ENABLED=' config.env && [ "${BREAKTEST_DB_ENABLED:-}" != "$enabled" ]; }; }; then
+    bt_set_env_value config.env BREAKTEST_DB_ENABLED "$enabled"
+    bt_remove_env_value config.env BREAKTEST_DB_APPLICATION_PREVIEW
+  fi
+  BREAKTEST_DB_ENABLED=$enabled
+  export BREAKTEST_DB_ENABLED
+  if [ "$enabled" != true ]; then return 0; fi
+  if [ -z "${BREAKTEST_DB_ADMIN_TOKEN:-}" ]; then
+    BREAKTEST_DB_ADMIN_TOKEN=$(openssl rand -hex 32) || return 1
+    bt_set_env_value config.env BREAKTEST_DB_ADMIN_TOKEN "$BREAKTEST_DB_ADMIN_TOKEN"
+  fi
+  if [ "${#BREAKTEST_DB_ADMIN_TOKEN}" -lt 32 ]; then
+    echo 'Error: BREAKTEST_DB_ADMIN_TOKEN must contain at least 32 characters.' >&2
+    return 1
+  fi
+  if ! bt_profile_contains "${COMPOSE_PROFILES:-}" breaktest-db; then
+    COMPOSE_PROFILES="$(bt_append_profile "${COMPOSE_PROFILES:-}" breaktest-db)"
+  fi
+  export BREAKTEST_DB_ADMIN_TOKEN COMPOSE_PROFILES
 }

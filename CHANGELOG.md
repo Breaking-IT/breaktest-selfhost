@@ -2,6 +2,35 @@
 
 Historical releases before this release history was introduced may not have notes.
 
+## 26.11.0 — 2026-11-04
+
+### BreakTest DB
+- Add an optional results database alongside TimescaleDB for BreakTest/JMeter-fork, k6 and k6 browser performance tests. Select the results backend per customer; running tests keep the backend they started with.
+- Store compressed results, one-second aggregates, percentiles and generator hardware statistics in portable per-test directories. Completed bundles can be copied and queried without a SQL import.
+- Support live graphs, test summaries, request/transaction analysis, comparisons, trends, reports and SLO evaluation. Incomplete or unconfirmed ingestion is reported explicitly instead of assuming a complete successful test.
+- Include BreakTest DB results in full and customer backups and restore. Add copy-only migration of completed TimescaleDB tests, preserving the original data and allowing verified copies to follow the customer's backend preference.
+- Apply raw-request and error retention to completed native BreakTest DB tests, respecting exclusions. Clear selected data without recompressing retained streams; refuse clears when there is insufficient disk space for the staged copy.
+
+### Live tests and generators
+- Improve ingestion and live-query concurrency for large remote-generator fleets, reduce telemetry overhead, and remove fixed per-test source/cardinality limits while retaining memory, disk and network safeguards.
+- Keep live chart updates independent of late historical data. Stop chart polling during sealing while continuing to show finalization progress.
+- Improve generator shutdown, queued-result draining and finish acknowledgments; fix a BreakTest class-loader stall and writer teardown deadlock.
+- Provision test-only generator groups in parallel with shared-resource coordination. Improve Fargate role repair/retry and security-group setup, and use the customer's Azure subscription for VM identity.
+
+### Charts and diagnostics
+- Fix synthetic-monitoring chart hover freezes and stale response updates. Show the slowest 50 series initially while keeping all series selectable.
+- Fix empty BreakTest DB raw-mode request, location and generator-error graphs. Preserve exact raw response-time points and subsecond rate detail.
+- Treat unavailable TCP connect measurements as unavailable rather than negative times, and exclude them from averages.
+- Log individual database-maintenance findings and required actions at startup.
+
+### Upgrade notes
+- TimescaleDB remains the default; enabling BreakTest DB does not migrate existing customer data. Set `BREAKTEST_DB_ENABLED=true` to enable it (default `false`). Startup generates and persists the admin token; three ingestion lanes per generator are the default.
+- Upgrades translate the former `BREAKTEST_DB_APPLICATION_PREVIEW` flag automatically. Preserve the generated admin token and the `breaktest_results` volume. Older experimental `CUSTOM_STORAGE_*` configurations and volumes require a separate manual migration.
+- Upgrade remote load-generator images before using BreakTest DB; generators must advertise the matching writer capability. Existing cloud machine images are not rebuilt by this release.
+- Synthetic monitoring and external Grafana SQL dashboards continue to use TimescaleDB. BreakTest DB does not support k6 browser screenshot storage.
+- BreakTest DB uses checkpoint-based relaxed durability: a crash can lose data received after the last checkpoint. Coverage reporting identifies unconfirmed data.
+- Clearing retained streams temporarily needs space for the remaining compressed data plus 1 GiB. Back up before upgrading and keep adequate disk space.
+
 ## 26.10.3 — 2026-10-26
 
 ### Database storage

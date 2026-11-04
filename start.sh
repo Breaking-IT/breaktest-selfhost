@@ -341,6 +341,8 @@ fi
 # Select the staged target before pulling; the Compose fallback is for old launchers.
 export MONGODB_VERSION="${MONGODB_VERSION:-9.0.4}"
 
+bt_prepare_breaktest_db
+
 if [ "$PULL_IMAGES" = true ]; then
   $DOCKER_COMPOSE "${COMPOSE_ARGS[@]}" pull
   check_free_disk_space

@@ -178,6 +178,10 @@ should run in a durable shell or service session: interrupting the command
 aborts the backup and terminates only the database dump sessions owned by that
 run. `MAX_PARALLEL` controls concurrent PostgreSQL dumps, while
 `BACKUP_DISK_HEADROOM_GB` adds free-space headroom to the preflight check.
+When BreakTest DB is enabled, the backup also contains its results volume
+(`breaktest_db_data.tar`). Restore those results with
+`./restore_breaktest_db.sh backups/full_backup_<timestamp>.tar`, together with
+MongoDB from the same archive; existing results are never overwritten.
 
 ## Public URL and TLS
 
@@ -573,3 +577,43 @@ newer than the installed version, including upgrade requirements. The notes are
 read from the advertised release's immutable tag. Releases from before this
 history was introduced may not have notes; missing coverage is labelled.
 The check never installs updates automatically.
+
+
+### Opt-in BreakTest DB
+
+The release pipeline publishes `breakingit/breaktest-db` for Linux amd64 and
+arm64 alongside the other images. `version.env` pins `BREAKTEST_DB_VERSION`;
+the standard global `BREAKTEST_VERSION` override also applies to this image.
+Use a bundle released with BreakTest DB support; older releases do not have this image.
+
+To enable the service in a self-host installation, set in `config.env`:
+
+```sh
+BREAKTEST_DB_ENABLED=true
+```
+
+When upgrading an existing configuration, `./start.sh` and `./upgrade.sh` replace the
+former `BREAKTEST_DB_APPLICATION_PREVIEW` flag in `config.env` with `BREAKTEST_DB_ENABLED`
+(`1` becomes `true`). `true`/`false` are preferred; `1`/`0`, `yes`/`no` and `on`/`off` are
+also accepted in any case, and any other value stops startup. Keep the existing admin token.
+No volume or customer setting needs to change.
+
+Then run `./start.sh` (or `./upgrade.sh` to install the new bundle first). The scripts
+add the `breaktest-db` profile before pulling images and generate/persist an admin
+token if missing. The backend and the local load generator use the internal service
+URL; remote load generators automatically write through `BREAKTEST_PUBLIC_URL` and
+Traefik, the same rule as the TimescaleDB proxy. Set `BREAKTEST_DB_INGEST_URL` only
+to send every generator to another origin. Only producer POST routes are exposed;
+administration/query endpoints remain inside the Docker network.
+
+Three ordered ingestion lanes per generator are used by default.
+`BREAKTEST_DB_LANES` is an optional tuning override (1–4), not a required setting.
+
+The `breaktest_results` named volume stores portable results; the backend mounts it
+read-only for results/backup and separately for restore. Do not remove this volume
+when stopping/upgrading. The ordinary load-generator image now includes the BreakTest DB
+k6 writer and the BreakTest/JMeter-fork listener, alongside TimescaleDB support.
+After upgrading existing generators, choose the customer storage setting in the UI.
+
+TimescaleDB remains the default;
+no customer settings or existing results are migrated by installation or upgrade.

@@ -16,6 +16,7 @@ services:
       - --certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=web
       - --providers.docker=true
       - --providers.docker.exposedbydefault=false
+      - --providers.docker.allowemptyservices=true
       - --global.checknewversion=false
       - --global.sendanonymoususage=false
       - --log.level=${LOG_LEVEL:-INFO}
@@ -81,11 +82,21 @@ services:
     environment:
       - BREAKTEST_VERSION=${BREAKTEST_VERSION}
       - BREAKTEST_DEPLOYMENT=selfhost
+      - BREAKTEST_DB_URL=http://breaktest-db:8099
+      # Local generators write to the internal service; remote generators switch to
+      # BREAKTEST_PUBLIC_URL themselves, as with the TimescaleDB proxy.
+      - BREAKTEST_DB_INGEST_URL=${BREAKTEST_DB_INGEST_URL:-http://breaktest-db:8099}
+      - BREAKTEST_DB_ADMIN_TOKEN=${BREAKTEST_DB_ADMIN_TOKEN:-}
+      - BREAKTEST_DB_ENABLED=${BREAKTEST_DB_ENABLED:-false}
+      - BREAKTEST_DB_BUNDLE_ROOT=/breaktest-results
+      - BREAKTEST_DB_RESTORE_ROOT=/breaktest-restore
       - AI_ASSISTANT_ENABLED=${AI_ASSISTANT_ENABLED:-false}
       - HERMES_URL=${HERMES_URL:-http://ai-assistant:8080}
       - HERMES_API_KEY=${HERMES_API_KEY:-breaktest-internal}
     volumes:
       - ${BACKUP_PATH:-./backups}:/backups
+      - breaktest_results:/breaktest-results:ro
+      - breaktest_results:/breaktest-restore
     depends_on:
       mongodb:
         condition: service_healthy
@@ -388,11 +399,43 @@ services:
     security_opt:
       - no-new-privileges:true
 
+  breaktest-db:
+    profiles: [breaktest-db]
+    image: ${BREAKTEST_IMAGE_REGISTRY:-breakingit}/breaktest-db:${BREAKTEST_DB_VERSION:-${BREAKTEST_VERSION:?BREAKTEST_VERSION is required}}
+    user: '1000:1000'
+    command: [serve, /data, '0.0.0.0:8099']
+    environment:
+      BREAKTEST_DB_ADMIN_TOKEN: ${BREAKTEST_DB_ADMIN_TOKEN:-}
+      BT_MEMORY_LIMIT_BYTES: ${BREAKTEST_DB_MEMORY_LIMIT_BYTES:-}
+    volumes: [breaktest_results:/data]
+    networks: [breaktest-network]
+    stop_grace_period: 40s
+    restart: unless-stopped
+    healthcheck:
+      test: [CMD, breaktest-db, healthcheck]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.breaktest-db-ingest.rule=PathRegexp(`^/runs/[A-Za-z0-9_-]{1,64}/(hello|ingest/batch|watermark|finish)$$`) && Method(`POST`)
+      - traefik.http.routers.breaktest-db-ingest.entrypoints=${TRAEFIK_ENTRYPOINTS:-web}
+      - traefik.http.routers.breaktest-db-ingest.priority=170
+      - traefik.http.routers.breaktest-db-ingest.tls=${TRAEFIK_TLS:-false}
+      - traefik.http.routers.breaktest-db-ingest.tls.certresolver=${TRAEFIK_CERT_RESOLVER:-letsencrypt}
+      - traefik.http.services.breaktest-db-ingest.loadbalancer.server.port=8099
+    security_opt:
+      - no-new-privileges:true
+
 networks:
   breaktest-network:
     driver: bridge
 
 volumes:
+  breaktest_results:
+    # Explicit override supports installations using an externally managed results volume.
+    name: ${BREAKTEST_DB_VOLUME_NAME:-${COMPOSE_PROJECT_NAME:-breaktest}_breaktest_results}
   mongodb_data:
   mongodb_logs:
   timescaledb_data:

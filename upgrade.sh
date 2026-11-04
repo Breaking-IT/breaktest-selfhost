@@ -251,6 +251,8 @@ esac
 
 OLD_PROJECT_IMAGES=$(collect_project_images "$PROJECT_NAME")
 
+bt_prepare_breaktest_db
+
 $DOCKER_COMPOSE "${ENV_ARGS[@]}" "${COMPOSE_FILES[@]}" -p "$PROJECT_NAME" pull
 bt_prepare_loadgenerator
 if profile_contains "${COMPOSE_PROFILES:-}" "loadgenerator" && [ "${LOAD_GENERATOR_RUN_MODE:-container}" = "container" ]; then
