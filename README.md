@@ -606,7 +606,9 @@ Traefik, the same rule as the TimescaleDB proxy. Set `BREAKTEST_DB_INGEST_URL` o
 to send every generator to another origin. Only producer POST routes are exposed;
 administration/query endpoints remain inside the Docker network.
 
-Three ordered ingestion lanes per generator are used by default.
+One ordered ingestion lane per generator is used by default to avoid multiplying
+watermark traffic for distributed fleets. Extra lanes can help individual
+generators with upload throughput constraints; benchmark before increasing them.
 `BREAKTEST_DB_LANES` is an optional tuning override (1–4), not a required setting.
 
 The `breaktest_results` named volume stores portable results; the backend mounts it

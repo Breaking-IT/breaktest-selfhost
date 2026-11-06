@@ -2,6 +2,14 @@
   "schema_version": 1,
   "releases": [
     {
+      "version": "26.11.1",
+      "date": "2026-11-06",
+      "source_commit": "19a2983a9436e4776061c215887c38f89eaca4ee",
+      "previous_version": "26.11.0",
+      "previous_source_commit": "5c2bca4543ddc414bf561d3f47dfe8171c340635",
+      "notes": "### BreakTest DB and live charts\n- BreakTest DB encodes checkpoints in the background so ingestion and live queries can continue while results are written. Live charts use pre-aggregated error counts and JVM metrics and fetch virtual-user totals directly.\n- Opening or reconnecting to a live dashboard now loads history alongside current data. New live updates and late corrections take precedence over older snapshots. Long tests can use two-minute and five-minute chart intervals.\n\n### Scenarios and load generators\n- Uploading a BreakTest plan now guides you through updating file references, importing profiles, and importing scenarios. You can add missing profile variables while preserving edited values, and imported scenarios use the profile copies you select.\n- Edit workload settings, iteration behavior, and k6 options in the scenario editor. The console preserves selections for generators whose names contain spaces or commas.\n- Manual generator setup now defaults to process mode and offers container mode. Bulk removal lets you remove failed generator records separately from their cloud resources.\n\n### Upgrade notes\n- BreakTest DB now defaults to one ingestion lane per generator, down from three, to reduce watermark traffic across large fleets. Remove an explicit `BREAKTEST_DB_LANES` setting to use the new default, or keep an override of 1\u20134 lanes."
+    },
+    {
       "version": "26.11.0",
       "date": "2026-11-04",
       "source_commit": "5c2bca4543ddc414bf561d3f47dfe8171c340635",
