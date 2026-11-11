@@ -73,4 +73,6 @@ case "${BREAKTEST_TLS_MODE:-disabled}" in
 esac
 
 # Preserve the original database binaries for the next staged upgrade.
+
+
 $DOCKER_COMPOSE "${ENV_ARGS[@]}" "${COMPOSE_FILES[@]}" -p "$PROJECT_NAME" --profile "*" stop

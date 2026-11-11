@@ -76,10 +76,21 @@ services:
 
   backend:
     image: ${BREAKTEST_IMAGE_REGISTRY:-breakingit}/breaktest-backend:${BREAKTEST_BACKEND_VERSION:-${BREAKTEST_VERSION:?BREAKTEST_VERSION is not set - run via start.sh or pass --env-file version.env}}
+    user: "${BACKEND_NATIVE_UID:-0}:${BACKEND_NATIVE_GID:-0}"
+    stop_grace_period: 40s
+    tmpfs:
+      - /tmp:rw,mode=1777
+      - /conversion-cache:rw,mode=1777
     restart: unless-stopped
     env_file:
       - config.env
     environment:
+      - BACKEND_NATIVE_WORKERS_ENABLED=true
+      - RUST_API_LISTEN=0.0.0.0:3002
+      - AI_ANALYSIS_INTERNAL_BASE_URL=http://127.0.0.1:3002
+      - AI_CHAT_MODEL=${AI_CHAT_MODEL:-hermes-agent}
+      - BACKUP_ROOT=/backups
+      - BREAKTEST_CONVERSION_CACHE_ROOT=/conversion-cache
       - BREAKTEST_VERSION=${BREAKTEST_VERSION}
       - BREAKTEST_DEPLOYMENT=selfhost
       - BREAKTEST_DB_URL=http://breaktest-db:8099
@@ -95,8 +106,8 @@ services:
       - HERMES_API_KEY=${HERMES_API_KEY:-breaktest-internal}
     volumes:
       - ${BACKUP_PATH:-./backups}:/backups
-      - breaktest_results:/breaktest-results:ro
-      - breaktest_results:/breaktest-restore
+      - ${BREAKTEST_DB_DATA_PATH:-breaktest_results}:/breaktest-results:ro
+      - ${BREAKTEST_DB_DATA_PATH:-breaktest_results}:/breaktest-restore
     depends_on:
       mongodb:
         condition: service_healthy
@@ -107,13 +118,14 @@ services:
       traefik:
         condition: service_started
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:3002/health', timeout=5)"]
+      test: ["CMD", "/breaktest-backend-api", "--healthcheck"]
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 30s
+      start_period: 120s
     networks:
-      - breaktest-network
+      breaktest-network:
+        aliases: [backend-api-rs]
     labels:
       - traefik.enable=true
       - traefik.http.routers.breaktest-backend.rule=${TRAEFIK_BACKEND_RULE:-PathPrefix(`/api`)}
@@ -407,7 +419,8 @@ services:
     environment:
       BREAKTEST_DB_ADMIN_TOKEN: ${BREAKTEST_DB_ADMIN_TOKEN:-}
       BT_MEMORY_LIMIT_BYTES: ${BREAKTEST_DB_MEMORY_LIMIT_BYTES:-}
-    volumes: [breaktest_results:/data]
+    volumes:
+      - ${BREAKTEST_DB_DATA_PATH:-breaktest_results}:/data
     networks: [breaktest-network]
     stop_grace_period: 40s
     restart: unless-stopped

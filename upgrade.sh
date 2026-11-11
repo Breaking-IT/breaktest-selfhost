@@ -249,6 +249,8 @@ case "${BREAKTEST_TLS_MODE:-disabled}" in
     ;;
 esac
 
+
+
 OLD_PROJECT_IMAGES=$(collect_project_images "$PROJECT_NAME")
 
 bt_prepare_breaktest_db
@@ -266,6 +268,8 @@ bt_prepare_mongodb_upgrade "$PROJECT_NAME" $DOCKER_COMPOSE "${ENV_ARGS[@]}" "${C
 # Persist only after preparation succeeds, so later starts/direct Compose calls
 # cannot select the compatibility fallback and downgrade the database.
 bt_set_env_value config.env MONGODB_VERSION "$MONGODB_VERSION"
+# Stop the previous controller first; the new one applies schema migrations on start.
+$DOCKER_COMPOSE "${ENV_ARGS[@]}" "${COMPOSE_FILES[@]}" -p "$PROJECT_NAME" stop backend
 $DOCKER_COMPOSE "${ENV_ARGS[@]}" "${COMPOSE_FILES[@]}" -p "$PROJECT_NAME" up -d --remove-orphans --wait --wait-timeout "${BREAKTEST_STARTUP_HEALTH_TIMEOUT_SECONDS:-300}"
 bt_finish_mongodb_upgrade "$PROJECT_NAME" $DOCKER_COMPOSE "${ENV_ARGS[@]}" "${COMPOSE_FILES[@]}" -p "$PROJECT_NAME"
 $DOCKER_COMPOSE "${ENV_ARGS[@]}" "${COMPOSE_FILES[@]}" -p "$PROJECT_NAME" ps

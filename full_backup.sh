@@ -22,7 +22,6 @@ POSTGRES_HOST=${POSTGRES_HOST:-timescaledb}
 POSTGRES_PORT=${POSTGRES_PORT:-5432}
 POSTGRES_CONTAINER=${POSTGRES_CONTAINER:-timescaledb}
 MONGO_CONTAINER=${MONGO_CONTAINER:-mongodb}
-BACKEND_CONTAINER=${BACKEND_CONTAINER:-backend}
 MONITORING_DB_NAME=${MONITORING_DB_NAME:-breaktest_monitoring}
 # Keep all existing local backups when upgrading from a config.env that did
 # not have this setting. Fresh generated/sample configs set an explicit
@@ -91,7 +90,6 @@ if [[ -n ${BREAKTEST_COMPOSE_PROJECT_NAME:-} ]]; then
     [[ ! -f config.env ]] || COMPOSE_ARGS+=(--env-file config.env)
     POSTGRES_CONTAINER=$(resolve_compose_container "$POSTGRES_CONTAINER")
     MONGO_CONTAINER=$(resolve_compose_container "$MONGO_CONTAINER")
-    BACKEND_CONTAINER=$(resolve_compose_container "$BACKEND_CONTAINER")
 else
     DOCKER_COMPOSE=()
     COMPOSE_ARGS=()
@@ -251,11 +249,11 @@ backup_breaktest_db() {
     local volume_name=$1
     local output_file="$BACKUP_DIR/breaktest_db_data.tar"
 
-    if ! docker volume inspect "$volume_name" >/dev/null 2>&1; then
+    if [[ -z ${BREAKTEST_DB_DATA_PATH:-} ]] && ! docker volume inspect "$volume_name" >/dev/null 2>&1; then
         log "BreakTest DB volume not found: $volume_name; skipping BreakTest DB backup"
         return 0
     fi
-    log 'Backing up BreakTest DB volume'
+    log 'Backing up BreakTest DB results'
     # Bundles are already zstd-compressed; do not compress them again.
     docker run --rm -v "$volume_name":/source:ro alpine:latest \
         tar cf - -C /source --exclude='./.incoming-*' --exclude='./.deleted-*' . >"$output_file" 2>/dev/null \
@@ -265,7 +263,9 @@ backup_breaktest_db() {
 
 breaktest_db_volume_bytes() {
     local volume_name=$1 kib
-    docker volume inspect "$volume_name" >/dev/null 2>&1 || { printf '0\n'; return 0; }
+    if [[ -z ${BREAKTEST_DB_DATA_PATH:-} ]]; then
+        docker volume inspect "$volume_name" >/dev/null 2>&1 || { printf '0\n'; return 0; }
+    fi
     kib=$(docker run --rm -v "$volume_name":/source:ro alpine:latest du -sk /source 2>/dev/null | awk '{ print $1 }')
     [[ $kib =~ ^[0-9]+$ ]] || return 1
     printf '%s\n' "$((kib * 1024))"
@@ -389,40 +389,22 @@ append_database_dump() {
 }
 
 get_dynamic_db_list() {
-    docker exec -i \
-        -e MONGO_INITDB_ROOT_USERNAME="$MONGO_USER" \
-        -e MONGO_INITDB_ROOT_PASSWORD="$MONGO_PASS" \
-        -e MONGO_DATABASE="$MONGO_DB" \
-        "$BACKEND_CONTAINER" python3 - 2>/dev/null <<'PYTHON'
-import json
-import os
-from pymongo import MongoClient
-
-mongo_user = os.environ.get("MONGO_INITDB_ROOT_USERNAME", "admin")
-mongo_pass = os.environ.get("MONGO_INITDB_ROOT_PASSWORD", "")
-mongo_db = os.environ.get("MONGO_DATABASE", "breakingit")
-
-client = MongoClient(
-    f"mongodb://{mongo_user}:{mongo_pass}@mongodb:27017/?authSource=admin",
-    serverSelectionTimeoutMS=10000,
-)
-client.admin.command("ping")
-db = client[mongo_db]
-customer_dbs = []
-for customer in db.customers.find({}, {"name": 1, "_id": 1}):
-    customer_id = str(customer["_id"])
-    customer_name = customer.get("name", "")
-    tsdb = db.timescaledb.find_one({"customer_id": customer_id, "default": True}) or \
-           db.timescaledb.find_one({"customer_id": customer_id})
-    dbname = tsdb.get("database") if tsdb else customer_name.lower()
-    if dbname:
-        customer_dbs.append({
-            "dbname": dbname,
-            "customer_name": customer_name,
-            "customer_id": customer_id,
-        })
-print(json.dumps(customer_dbs))
-PYTHON
+    # One "dbname|customer name|customer id" line per customer database, read
+    # with mongosh in the MongoDB container (the backend image has no shell).
+    docker exec "$MONGO_CONTAINER" mongosh --quiet \
+        --authenticationDatabase admin \
+        --username "$MONGO_USER" \
+        --password "$MONGO_PASS" \
+        "$MONGO_DB" --eval '
+db.customers.find({}, {name: 1}).forEach(function (customer) {
+    var id = customer._id.toString().replace(/^ObjectId\("(.*)"\)$/, "$1");
+    if (customer._id.str) { id = customer._id.str; }
+    var name = customer.name || "";
+    var tsdb = db.timescaledb.findOne({customer_id: id, default: true}) ||
+               db.timescaledb.findOne({customer_id: id});
+    var dbname = tsdb && tsdb.database ? tsdb.database : name.toLowerCase();
+    if (dbname) { print(dbname + "|" + name + "|" + id); }
+});' 2>/dev/null
 }
 
 parse_db_list() {
@@ -609,6 +591,11 @@ run_retention() {
 
 COMPOSE_PROJECT_NAME=${BREAKTEST_COMPOSE_PROJECT_NAME:-$(basename "$(pwd -P)")}
 BREAKTEST_DB_VOLUME="${BREAKTEST_DB_VOLUME_NAME:-${COMPOSE_PROJECT_NAME}_breaktest_results}"
+if [[ -n ${BREAKTEST_DB_DATA_PATH:-} ]]; then
+    [[ $BREAKTEST_DB_DATA_PATH == /* && $BREAKTEST_DB_DATA_PATH != / && $BREAKTEST_DB_DATA_PATH != *:* && -d $BREAKTEST_DB_DATA_PATH ]] \
+        || die 'BREAKTEST_DB_DATA_PATH must be an existing absolute dedicated directory'
+    BREAKTEST_DB_VOLUME=$BREAKTEST_DB_DATA_PATH
+fi
 backup_config_env
 validate_postgres_tools
 
@@ -616,13 +603,8 @@ DB_NAMES=()
 if [[ ${DB_LIST+x} == x ]]; then
     parse_db_list "$DB_LIST"
 else
-    CUSTOMER_DBS=$(get_dynamic_db_list) \
+    DB_LIST=$(get_dynamic_db_list) \
         || die 'failed to retrieve customer database list from MongoDB'
-    DB_LIST=$(printf '%s' "$CUSTOMER_DBS" | docker exec -i "$BACKEND_CONTAINER" python3 -c '
-import json, sys
-for item in json.load(sys.stdin):
-    print("{}|{}|{}".format(item["dbname"], item.get("customer_name", ""), item.get("customer_id", "")))
-') || die 'failed to parse customer database list'
     parse_db_list "$DB_LIST"
     register_database postgres
 fi

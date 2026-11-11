@@ -1,0 +1,2 @@
+# Compatibility overlay; the base backend is Rust by default.
+services: {}

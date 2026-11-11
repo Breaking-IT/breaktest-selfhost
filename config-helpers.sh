@@ -977,6 +977,17 @@ bt_prepare_breaktest_db() {
   fi
   BREAKTEST_DB_ENABLED=$enabled
   export BREAKTEST_DB_ENABLED
+  if [ -n "${BREAKTEST_DB_DATA_PATH:-}" ]; then
+    case "$BREAKTEST_DB_DATA_PATH" in
+      /*) ;;
+      *) echo 'Error: BREAKTEST_DB_DATA_PATH must be an absolute existing directory.' >&2; return 1 ;;
+    esac
+    if [ "$BREAKTEST_DB_DATA_PATH" = / ] || [ ! -d "$BREAKTEST_DB_DATA_PATH" ] || [[ "$BREAKTEST_DB_DATA_PATH" == *:* ]]; then
+      echo 'Error: BREAKTEST_DB_DATA_PATH must be an existing dedicated directory, not /, and contain no colon. Prepare it for UID/GID 1000 before starting.' >&2
+      return 1
+    fi
+    export BREAKTEST_DB_DATA_PATH
+  fi
   if [ "$enabled" != true ]; then return 0; fi
   if [ -z "${BREAKTEST_DB_ADMIN_TOKEN:-}" ]; then
     BREAKTEST_DB_ADMIN_TOKEN=$(openssl rand -hex 32) || return 1

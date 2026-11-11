@@ -20,7 +20,29 @@ fi
 # Same project and volume naming as full_backup.sh.
 COMPOSE_PROJECT_NAME=${BREAKTEST_COMPOSE_PROJECT_NAME:-$(basename "$(pwd -P)")}
 VOLUME="${BREAKTEST_DB_VOLUME_NAME:-${COMPOSE_PROJECT_NAME}_breaktest_results}"
-IMAGE=${BREAKTEST_BACKEND_IMAGE:-breaktest-backend:${BREAKTEST_IMAGE_TAG:-latest}}
+# The restore runs the backend image's --restore-breaktest-db. Use the image
+# this installation runs: a self-host bundle pins it in version.env (registry
+# from config.env; BREAKTEST_VERSION in config.env overrides every image, as
+# in start.sh). A source checkout uses its locally built image.
+if [[ -f version.env ]]; then
+    set -a
+    # shellcheck disable=SC1091
+    source version.env
+    if [[ -f config.env ]]; then
+        # shellcheck disable=SC1091
+        source config.env
+    fi
+    set +a
+    backend_version=${BREAKTEST_BACKEND_VERSION:-${BREAKTEST_VERSION:-}}
+    if [[ -f config.env ]] && grep -q '^BREAKTEST_VERSION=..*' config.env; then
+        backend_version=$BREAKTEST_VERSION
+    fi
+    [[ -n $backend_version ]] || die 'version.env pins no backend version'
+    DEFAULT_IMAGE="${BREAKTEST_IMAGE_REGISTRY:-breakingit}/breaktest-backend:${backend_version}"
+else
+    DEFAULT_IMAGE="breaktest-backend:${BREAKTEST_IMAGE_TAG:-latest}"
+fi
+IMAGE=${BREAKTEST_BACKEND_IMAGE:-$DEFAULT_IMAGE}
 
 member=$(tar -tf "$ARCHIVE" | grep '/breaktest_db_data\.tar$' || true)
 [[ -n $member ]] || die 'this backup contains no BreakTest DB data'
@@ -33,18 +55,18 @@ mkdir "$WORK/runs"
 tar -xf "$WORK/$member" -C "$WORK/runs"
 chmod -R a+rX "$WORK"
 
-docker volume inspect "$VOLUME" >/dev/null 2>&1 || docker volume create "$VOLUME" >/dev/null
+if [[ -n ${BREAKTEST_DB_DATA_PATH:-} ]]; then
+    [[ $BREAKTEST_DB_DATA_PATH == /* && $BREAKTEST_DB_DATA_PATH != / && $BREAKTEST_DB_DATA_PATH != *:* && -d $BREAKTEST_DB_DATA_PATH ]] \
+        || die 'BREAKTEST_DB_DATA_PATH must be an existing absolute dedicated directory'
+    VOLUME=$BREAKTEST_DB_DATA_PATH
+else
+    docker volume inspect "$VOLUME" >/dev/null 2>&1 || docker volume create "$VOLUME" >/dev/null
+fi
 # The store runs as 1000:1000; a volume created here starts out owned by root.
 docker run --rm -v "$VOLUME":/data alpine:latest chown 1000:1000 /data
-# Uses the restore code shipped in the backend image, so it also works from a
-# self-host bundle. The store discovers published directories itself.
-docker run --rm --user 1000:1000 --workdir /app -e PYTHONPATH=/app --entrypoint python \
-    -v "$VOLUME":/data -v "$WORK/runs":/backup:ro "$IMAGE" -c '
-import json, sys
-from pathlib import Path
-from helpers.breaktest_db_bundles import restore_runs
-result = restore_runs(Path("/backup"), Path("/data"))
-print(json.dumps({key: len(value) for key, value in result.items()} | {"conflict_ids": result["conflicts"]}))
-sys.exit(1 if result["conflicts"] else 0)
-'
-printf 'BreakTest DB restore completed into volume %s\n' "$VOLUME"
+# Uses the restore code shipped in the backend image (see IMAGE above). The
+# store discovers published directories itself.
+docker run --rm --user 1000:1000 --entrypoint /breaktest-backend-api \
+    -v "$VOLUME":/data -v "$WORK/runs":/backup:ro "$IMAGE" \
+    --restore-breaktest-db /backup /data
+printf 'BreakTest DB restore completed into %s\n' "$VOLUME"

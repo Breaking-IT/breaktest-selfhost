@@ -1,0 +1,324 @@
+{
+  "fixture_manifest": {
+    "run_id": "set-at-startup",
+    "tables": {
+      "requests_raw": {
+        "columns": [
+          {
+            "column_name": "time",
+            "data_type": "timestamp with time zone",
+            "is_nullable": "NO"
+          },
+          {
+            "column_name": "run_id",
+            "data_type": "text",
+            "is_nullable": "NO"
+          },
+          {
+            "column_name": "location",
+            "data_type": "text",
+            "is_nullable": "YES"
+          },
+          {
+            "column_name": "transaction_name",
+            "data_type": "text",
+            "is_nullable": "YES"
+          },
+          {
+            "column_name": "sampler_name",
+            "data_type": "text",
+            "is_nullable": "NO"
+          },
+          {
+            "column_name": "success",
+            "data_type": "boolean",
+            "is_nullable": "NO"
+          },
+          {
+            "column_name": "request_size",
+            "data_type": "integer",
+            "is_nullable": "YES"
+          },
+          {
+            "column_name": "response_size",
+            "data_type": "integer",
+            "is_nullable": "YES"
+          },
+          {
+            "column_name": "response_code",
+            "data_type": "text",
+            "is_nullable": "YES"
+          },
+          {
+            "column_name": "response_connect_time",
+            "data_type": "integer",
+            "is_nullable": "YES"
+          },
+          {
+            "column_name": "response_latency",
+            "data_type": "integer",
+            "is_nullable": "YES"
+          },
+          {
+            "column_name": "response_time",
+            "data_type": "integer",
+            "is_nullable": "YES"
+          }
+        ]
+      },
+      "requests_error": {
+        "columns": [
+          {
+            "column_name": "time",
+            "data_type": "timestamp with time zone",
+            "is_nullable": "NO"
+          },
+          {
+            "column_name": "run_id",
+            "data_type": "text",
+            "is_nullable": "NO"
+          },
+          {
+            "column_name": "location",
+            "data_type": "text",
+            "is_nullable": "YES"
+          },
+          {
+            "column_name": "node_name",
+            "data_type": "text",
+            "is_nullable": "NO"
+          },
+          {
+            "column_name": "transaction_name",
+            "data_type": "text",
+            "is_nullable": "YES"
+          },
+          {
+            "column_name": "sampler_name",
+            "data_type": "text",
+            "is_nullable": "NO"
+          },
+          {
+            "column_name": "response_code",
+            "data_type": "text",
+            "is_nullable": "YES"
+          },
+          {
+            "column_name": "response_time",
+            "data_type": "integer",
+            "is_nullable": "YES"
+          },
+          {
+            "column_name": "connection_time",
+            "data_type": "integer",
+            "is_nullable": "YES"
+          },
+          {
+            "column_name": "url",
+            "data_type": "text",
+            "is_nullable": "YES"
+          },
+          {
+            "column_name": "assertions",
+            "data_type": "text",
+            "is_nullable": "YES"
+          },
+          {
+            "column_name": "response_message",
+            "data_type": "text",
+            "is_nullable": "YES"
+          },
+          {
+            "column_name": "request_headers",
+            "data_type": "text",
+            "is_nullable": "YES"
+          },
+          {
+            "column_name": "response_headers",
+            "data_type": "text",
+            "is_nullable": "YES"
+          },
+          {
+            "column_name": "response_data",
+            "data_type": "text",
+            "is_nullable": "YES"
+          },
+          {
+            "column_name": "id",
+            "data_type": "uuid",
+            "is_nullable": "NO"
+          }
+        ]
+      },
+      "transactions": {
+        "columns": [
+          {
+            "column_name": "time",
+            "data_type": "timestamp with time zone",
+            "is_nullable": "NO"
+          },
+          {
+            "column_name": "run_id",
+            "data_type": "text",
+            "is_nullable": "NO"
+          },
+          {
+            "column_name": "location",
+            "data_type": "text",
+            "is_nullable": "YES"
+          },
+          {
+            "column_name": "transaction_name",
+            "data_type": "text",
+            "is_nullable": "NO"
+          },
+          {
+            "column_name": "success",
+            "data_type": "boolean",
+            "is_nullable": "NO"
+          },
+          {
+            "column_name": "request_size",
+            "data_type": "integer",
+            "is_nullable": "YES"
+          },
+          {
+            "column_name": "response_size",
+            "data_type": "integer",
+            "is_nullable": "YES"
+          },
+          {
+            "column_name": "response_time",
+            "data_type": "integer",
+            "is_nullable": "YES"
+          }
+        ]
+      },
+      "virtual_users": {
+        "columns": [
+          {
+            "column_name": "time",
+            "data_type": "timestamp with time zone",
+            "is_nullable": "NO"
+          },
+          {
+            "column_name": "run_id",
+            "data_type": "text",
+            "is_nullable": "NO"
+          },
+          {
+            "column_name": "location",
+            "data_type": "text",
+            "is_nullable": "YES"
+          },
+          {
+            "column_name": "node_name",
+            "data_type": "text",
+            "is_nullable": "NO"
+          },
+          {
+            "column_name": "active_threads",
+            "data_type": "integer",
+            "is_nullable": "YES"
+          },
+          {
+            "column_name": "started_threads",
+            "data_type": "integer",
+            "is_nullable": "YES"
+          },
+          {
+            "column_name": "finished_threads",
+            "data_type": "integer",
+            "is_nullable": "YES"
+          }
+        ]
+      },
+      "runtime_metrics": {
+        "columns": [
+          {
+            "column_name": "time",
+            "data_type": "timestamp with time zone",
+            "is_nullable": "NO"
+          },
+          {
+            "column_name": "run_id",
+            "data_type": "text",
+            "is_nullable": "NO"
+          },
+          {
+            "column_name": "location",
+            "data_type": "text",
+            "is_nullable": "YES"
+          },
+          {
+            "column_name": "node_name",
+            "data_type": "text",
+            "is_nullable": "YES"
+          },
+          {
+            "column_name": "runtime",
+            "data_type": "text",
+            "is_nullable": "NO"
+          },
+          {
+            "column_name": "metric_name",
+            "data_type": "text",
+            "is_nullable": "NO"
+          },
+          {
+            "column_name": "metric_value",
+            "data_type": "double precision",
+            "is_nullable": "YES"
+          },
+          {
+            "column_name": "unit",
+            "data_type": "text",
+            "is_nullable": "YES"
+          },
+          {
+            "column_name": "source",
+            "data_type": "text",
+            "is_nullable": "YES"
+          }
+        ]
+      },
+      "browser_screenshots": {
+        "columns": [
+          {
+            "column_name": "time",
+            "data_type": "timestamp with time zone",
+            "is_nullable": "NO"
+          },
+          {
+            "column_name": "run_id",
+            "data_type": "text",
+            "is_nullable": "NO"
+          },
+          {
+            "column_name": "screenshot_hash",
+            "data_type": "text",
+            "is_nullable": "NO"
+          },
+          {
+            "column_name": "mime_type",
+            "data_type": "text",
+            "is_nullable": "YES"
+          },
+          {
+            "column_name": "data",
+            "data_type": "text",
+            "is_nullable": "NO"
+          }
+        ]
+      }
+    }
+  },
+  "fingerprints": {
+    "requests_raw": {},
+    "requests_error": {},
+    "transactions": {},
+    "virtual_users": {},
+    "runtime_metrics": {},
+    "browser_screenshots": {}
+  }
+}

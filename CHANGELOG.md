@@ -2,6 +2,31 @@
 
 Historical releases before this release history was introduced may not have notes.
 
+## 26.11.2 — 2026-11-11
+
+### Test execution and reliability
+- Replace the Python backend and load-generator control agent with native Rust services, retaining the existing controller protocol and Compose service names.
+- Keep generator workloads running through controller reconnects, replay completion evidence after reconnect/restart, and keep explicit kill commands responsive during slow stops. Improve container-monitor recovery and Chromium startup when inherited home directories are not writable.
+- Recover interrupted starts, scheduled firings and result trims. Avoid duplicate finalization when a stop request races with generator completion, stop k6 browser runs gracefully, and include the first partial second when finalizing TimescaleDB results, including subsecond tests.
+
+### Results and charts
+- Show pause/resume annotations at the latest measured Vuser count at or before each event. Preserve resume pins during live updates and wait for historical samples when needed. Render manual annotations once instead of overlapping duplicate pins.
+- Load comparison sections independently and prevent stale requests from replacing newer selections. Preserve the requested resolution for generator charts.
+- Add trimming and browser error screenshots for native BreakTest DB results, with restart cleanup for interrupted storage operations.
+
+### Self-host results migration
+- Ship `./migrate_customer.sh plan|copy|switch` in the public bundle to copy eligible finalized BreakTest/JMeter tests from TimescaleDB into BreakTest DB. The Docker helper uses the running deployment configuration; host Python and a private source checkout are not required.
+- Preserve retained aggregates, finalized summaries and percentiles even when raw data has expired. Show confirmed detail-data gaps in test summaries; deleted samples are not reconstructed. Copying preserves the original TimescaleDB data and routing, and existing verified bundles are not overwritten.
+- Support `BREAKTEST_DB_DATA_PATH` for an existing absolute host directory, consistently across storage, backend, backup, restore and migration. Leaving it blank retains the named-volume default.
+
+### Upgrade and compatibility notes
+- Back up before upgrading and use the complete updated self-host bundle. Installations older than v26.10.3 must upgrade through v26.11.1 first; installations from v26.10.3 onward can upgrade directly. The backend now applies schema migrations at startup.
+- The backend image remains `breaktest-backend`, now with a Rust runtime. Upgrade remote generator images to receive the new agent and k6 writer. Preserve existing data volumes and the generator `/files` mount used for completion recovery.
+- Run one active backend controller per installation. Additional replicas wait for the controller lease rather than serving traffic. PDF export fonts, spacing and pagination can differ. Cloud cleanup now requires a verifiable matching provider account for an allocation.
+- Migration requires the updated backend, frontend and BreakTest DB images. It does not support running/unfinalized tests, k6/browser tests, or legacy tests without run-scoped generator monitoring. Pause retention/deletion for selected tests and budget disk for exports, staging and copied results.
+- Imported retained-history bundles use format v3. Existing v1/v2 bundles remain readable, but older readers cannot read v3: switch historical reads back to TimescaleDB before rolling back. Raw clearing, trimming and offline optimize-copy are currently unavailable for imported v3 bundles.
+- Changing `BREAKTEST_DB_DATA_PATH` does not move data automatically: copy and verify existing results, preserve ownership, and recreate both backend and storage with the new setting. Keep the original data for rollback.
+
 ## 26.11.1 — 2026-11-06
 
 ### BreakTest DB and live charts

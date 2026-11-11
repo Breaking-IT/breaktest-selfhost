@@ -619,3 +619,67 @@ After upgrading existing generators, choose the customer storage setting in the 
 
 TimescaleDB remains the default;
 no customer settings or existing results are migrated by installation or upgrade.
+
+## Native Rust backend
+
+The `backend` service runs the complete Rust backend by default. No backend-selection
+flags or native-control overlay are required. Run `./start.sh` or `./upgrade.sh`;
+existing data volumes and the service name remain unchanged. The backend image is
+`breaktest-backend`, with its version pinned through `BREAKTEST_BACKEND_VERSION`.
+Releases up to v26.11.1 published the Python backend under that name and the Rust
+backend as `breaktest-backend-api-rs`; the bundle's compose file and `version.env`
+always refer to the right one. The backend applies schema migrations itself
+when it starts. A migration failure leaves the backend stopped; fix the failure and
+rerun startup. Back up existing data before upgrading.
+
+**Upgrading from a release older than v26.10.3** is a stop-over upgrade: first
+upgrade to **v26.11.1** (it applies the historical database migrations), then to
+this version. The backend refuses to start on an older database and says so.
+
+`BACKEND_NATIVE_UID`/`BACKEND_NATIVE_GID` default to the previous Python container's root
+identity to retain access to existing backup/results files without changing their ownership.
+You can configure a non-root identity after granting it access to those shared directories.
+Historical repair scripts remain offline utilities, and the NeoLoad/HAR converter
+implementations are unchanged by this control migration.
+
+## Copy existing customer results to BreakTest DB
+
+Use `./migrate_customer.sh plan --customer CUSTOMER_ID`, followed by
+`./migrate_customer.sh copy --customer CUSTOMER_ID --test TEST_ID` to validate one
+completed test before copying the customer. The wrapper uses the running deployment's
+configuration and storage volume. It leaves TimescaleDB intact and enables verified
+copies through the customer's Results storage setting.
+See [migration requirements, commands and rollback](migration/README.md).
+
+### Store BreakTest DB on a separate disk
+
+By default results use the existing `breaktest_results` Docker volume. To use a
+host directory, prepare an absolute path owned by the storage UID/GID and set:
+
+```sh
+sudo install -d -o 1000 -g 1000 -m 750 /data/breaktest-db
+```
+
+```dotenv
+BREAKTEST_DB_DATA_PATH=/data/breaktest-db
+```
+
+The directory overrides the named volume for the store, backend read/restore mounts,
+full backup and restore scripts. The migration wrapper follows the running store's
+mount and checks it against the backend configuration. Leave the setting blank to
+keep named-volume behavior, including `BREAKTEST_DB_VOLUME_NAME`.
+
+**For an existing installation, do not simply change the setting and start.** Wait
+for tests to finish and stop the backend and BreakTest DB so ingestion, finalization,
+retention and deletion cannot change files. Copy the entire old results volume to
+the new directory, preserving ownership and permissions. Verify file counts and
+checksums before setting the path and recreating both services with `start.sh`.
+Check health and historical results before allowing tests again. Keep the old volume
+for rollback; remove it only after you no longer need that copy. Rollback after new
+writes requires reconciling those writes, not just clearing the path setting.
+
+Startup and backup/restore reject missing or relative configured paths. They do not
+silently select a different empty directory. On Linux the storage process runs as
+UID/GID 1000 and needs write permission on the destination. The path is on the
+Docker host, not inside the container. Backups keep the same archive layout whether
+results use a named volume or a host directory.

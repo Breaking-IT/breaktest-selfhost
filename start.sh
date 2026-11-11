@@ -166,7 +166,7 @@ wait_for_required_services() {
   done
 
   echo "Error: the required services did not become healthy within ${timeout_seconds}s." >&2
-  $DOCKER_COMPOSE "${COMPOSE_ARGS[@]}" ps >&2 || true
+  $DOCKER_COMPOSE "${COMPOSE_ARGS[@]}" ps -a >&2 || true
   for service in "${services[@]}"; do
     echo "--- ${service} logs ---" >&2
     $DOCKER_COMPOSE "${COMPOSE_ARGS[@]}" logs --tail=80 "$service" >&2 || true
@@ -331,6 +331,8 @@ if bt_uses_https_compose; then
   fi
   COMPOSE_ARGS+=(-f docker-compose.https.yaml)
 fi
+
+
 if [ -f version.env ]; then
   # config.env comes last so its values override the bundle-pinned version.env
   COMPOSE_ARGS=(--env-file version.env --env-file config.env "${COMPOSE_ARGS[@]}")
