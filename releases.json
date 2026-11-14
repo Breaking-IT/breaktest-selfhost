@@ -2,6 +2,14 @@
   "schema_version": 1,
   "releases": [
     {
+      "version": "26.11.3",
+      "date": "2026-11-14",
+      "source_commit": "65d6f95ab29631fba083b82fd00f0f24607badbb",
+      "previous_version": "26.11.2",
+      "previous_source_commit": "387cb0eec6d8f11a766ba2890a52a5c345d47fd8",
+      "notes": "### Fixes and performance\n- Reduce repeated database polling and generator lookups for live charts, and stop polling finalized tests. Use a Linux memory allocator with background purging to improve backend memory handling.\n- Evaluate SLOs correctly after changing the SLO assigned to a finished test.\n- Stop chart reconnections and delayed summary redirects after leaving the Console, preventing unexpected navigation back to a completed test.\n- Prevent full-backup archive streams from being duplicated into Docker container logs.\n\n### Self-host updates\n- Update the bundled Traefik proxy to 3.7.18 and refresh frontend build and test dependencies.\n- Use the updated self-host bundle to receive the proxy and backup-script changes. This release introduces no new database migrations or configuration requirements."
+    },
+    {
       "version": "26.11.2",
       "date": "2026-11-11",
       "source_commit": "387cb0eec6d8f11a766ba2890a52a5c345d47fd8",

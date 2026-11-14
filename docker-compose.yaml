@@ -2,7 +2,7 @@ name: breaktest
 
 services:
   traefik:
-    image: traefik:v3.7.15
+    image: traefik:v3.7.18
     restart: unless-stopped
     command:
       - --api.dashboard=false

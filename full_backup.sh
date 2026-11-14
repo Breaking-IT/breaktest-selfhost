@@ -237,7 +237,7 @@ backup_grafana() {
         log "WARNING: Grafana volume not found: $volume_name; skipping Grafana backup"
         return 0
     fi
-    docker run --rm -v "$volume_name":/source:ro alpine:latest \
+    docker run --rm --log-driver=none -v "$volume_name":/source:ro alpine:latest \
         tar czf - -C /source . >"$output_file" 2>/dev/null \
         || die 'Grafana backup failed'
     [[ -s $output_file ]] || die 'Grafana backup is empty'
@@ -255,7 +255,7 @@ backup_breaktest_db() {
     fi
     log 'Backing up BreakTest DB results'
     # Bundles are already zstd-compressed; do not compress them again.
-    docker run --rm -v "$volume_name":/source:ro alpine:latest \
+    docker run --rm --log-driver=none -v "$volume_name":/source:ro alpine:latest \
         tar cf - -C /source --exclude='./.incoming-*' --exclude='./.deleted-*' . >"$output_file" 2>/dev/null \
         || die 'BreakTest DB backup failed'
     [[ -s $output_file ]] || die 'BreakTest DB backup is empty'
@@ -266,7 +266,7 @@ breaktest_db_volume_bytes() {
     if [[ -z ${BREAKTEST_DB_DATA_PATH:-} ]]; then
         docker volume inspect "$volume_name" >/dev/null 2>&1 || { printf '0\n'; return 0; }
     fi
-    kib=$(docker run --rm -v "$volume_name":/source:ro alpine:latest du -sk /source 2>/dev/null | awk '{ print $1 }')
+    kib=$(docker run --rm --log-driver=none -v "$volume_name":/source:ro alpine:latest du -sk /source 2>/dev/null | awk '{ print $1 }')
     [[ $kib =~ ^[0-9]+$ ]] || return 1
     printf '%s\n' "$((kib * 1024))"
 }
