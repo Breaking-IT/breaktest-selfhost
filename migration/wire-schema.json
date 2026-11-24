@@ -310,6 +310,80 @@
             "is_nullable": "NO"
           }
         ]
+      },
+      "jvm_samples": {
+        "columns": [
+          {
+            "column_name": "time",
+            "data_type": "timestamp with time zone",
+            "is_nullable": "NO"
+          },
+          {
+            "column_name": "run_id",
+            "data_type": "text",
+            "is_nullable": "NO"
+          },
+          {
+            "column_name": "location",
+            "data_type": "text",
+            "is_nullable": "YES"
+          },
+          {
+            "column_name": "node_name",
+            "data_type": "text",
+            "is_nullable": "YES"
+          },
+          {
+            "column_name": "source",
+            "data_type": "text",
+            "is_nullable": "YES"
+          },
+          {
+            "column_name": "jvm_heap_used_mb",
+            "data_type": "double precision",
+            "is_nullable": "YES"
+          },
+          {
+            "column_name": "jvm_heap_committed_mb",
+            "data_type": "double precision",
+            "is_nullable": "YES"
+          },
+          {
+            "column_name": "jvm_heap_max_mb",
+            "data_type": "double precision",
+            "is_nullable": "YES"
+          },
+          {
+            "column_name": "jvm_heap_used_percent",
+            "data_type": "double precision",
+            "is_nullable": "YES"
+          },
+          {
+            "column_name": "jvm_non_heap_used_mb",
+            "data_type": "double precision",
+            "is_nullable": "YES"
+          },
+          {
+            "column_name": "jvm_thread_count",
+            "data_type": "double precision",
+            "is_nullable": "YES"
+          },
+          {
+            "column_name": "jvm_gc_count",
+            "data_type": "double precision",
+            "is_nullable": "YES"
+          },
+          {
+            "column_name": "jvm_gc_time_ms",
+            "data_type": "double precision",
+            "is_nullable": "YES"
+          },
+          {
+            "column_name": "jvm_process_cpu_percent",
+            "data_type": "double precision",
+            "is_nullable": "YES"
+          }
+        ]
       }
     }
   },
@@ -319,6 +393,7 @@
     "transactions": {},
     "virtual_users": {},
     "runtime_metrics": {},
-    "browser_screenshots": {}
+    "browser_screenshots": {},
+    "jvm_samples": {}
   }
 }

@@ -48,7 +48,7 @@ def export(conn, run, work, stats, test):
                 # Named cursor prevents a large retained aggregate from becoming a Python list.
                 with conn.cursor(name='retained_' + table) as c:
                     if table == 'requests_aggregated_1s':
-                        columns = "(extract(epoch FROM bucket - timestamptz '2000-01-01')*1000000)::bigint AS time, sampler_name, transaction_name, mean_response_time::text, mean_latency::text, mean_connect_time::text, count, error_count, bytes_in, bytes_out"
+                        columns = "(extract(epoch FROM bucket - timestamptz '2000-01-01 00:00:00+00')*1000000)::bigint AS time, sampler_name, transaction_name, mean_response_time::text, mean_latency::text, mean_connect_time::text, count, error_count, bytes_in, bytes_out"
                     else:
                         columns = '*'
                     c.execute('SELECT row_to_json(r)::text FROM (SELECT ' + columns + ' FROM public.' + table + ' WHERE run_id=%s ORDER BY ' + ('bucket,sampler_name,transaction_name' if table == 'requests_aggregated_1s' else 'sampler_name,transaction_name' if table == 'requests_run_aggregated' else 'transaction_name' if table == 'transactions_run_aggregated' else 'run_id') + ') r', (run,))

@@ -2,6 +2,29 @@
 
 Historical releases before this release history was introduced may not have notes.
 
+## 26.11.4 — 2026-11-24
+
+### Synthetic Monitoring
+
+- Editing a monitor just after its results appear now lets the next run execute the updated script once the previous run finishes.
+- View one- and two-year trends with daily chart points. Customers using BreakTest DB can set separate retention periods for raw samples and error details while keeping execution history and hourly aggregates.
+- Store monitoring executions, samples, errors and screenshots in BreakTest DB. Dashboards, Grafana queries and alerts follow the customer's selected monitoring store. Full backup and restore include native monitoring history.
+
+### Load tests and AWS generators
+
+- Historical JMeter JVM and generator charts load faster, and finalized runs copy to BreakTest DB more quickly. The migration tool also supports eligible k6 HTTP and browser runs and can copy all configured customers in one invocation.
+- The AWS picker includes available C9g, M9g and R9g Graviton5 sizes and batches pricing requests to reduce throttling. New EC2 generators provisioned from affected older AMIs receive a launcher fix for repeated container restarts. Existing instances in a restart loop need a launcher repair or replacement.
+
+### Licensing
+
+- Fix installation and customer license activation when a proxy normalizes the signed request path. Previously the UI could report that the license server was unreachable even after successful pairing.
+
+### Self-host upgrade and migration
+
+- Upgrade the backend and BreakTest DB readers before deploying updated JMeter writers or running new migrations. Older readers cannot decode newly packed JVM blocks. Customer schema migration 50 adds packed JVM samples and a resumable background backfill for finalized TimescaleDB runs. Use the `runtime_metrics_read` view for SQL queries spanning old and new samples.
+- Whole-customer copies now include Synthetic Monitoring. If load tests were already migrated, use `./migrate_customer.sh update-sm --customer CUSTOMER_ID` to catch up. Copying alone preserves routing. Before using `--activate`, take a full backup, pause schedules, drain producers and let the last imported UTC hour close. Resume schedules after activation. New executions are stored only in BreakTest DB and cannot be copied back to TimescaleDB.
+- If an earlier migration produced time-shifted aggregate charts, keep the affected runs on TimescaleDB until their bundles are rebuilt from source with the updated copier. Reverification alone preserves the old timestamps.
+
 ## 26.11.3 — 2026-11-14
 
 ### Fixes and performance

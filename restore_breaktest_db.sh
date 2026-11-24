@@ -43,6 +43,45 @@ else
     DEFAULT_IMAGE="breaktest-backend:${BREAKTEST_IMAGE_TAG:-latest}"
 fi
 IMAGE=${BREAKTEST_BACKEND_IMAGE:-$DEFAULT_IMAGE}
+# Monitoring segments are verified with the store's own reader, which the
+# backend image does not have. Use the store image this installation runs.
+if [[ -f version.env ]]; then
+    store_version=${BREAKTEST_DB_VERSION:-${BREAKTEST_VERSION:-}}
+    if [[ -f config.env ]] && grep -q '^BREAKTEST_VERSION=..*' config.env; then
+        store_version=$BREAKTEST_VERSION
+    fi
+    [[ -n $store_version ]] || die 'version.env pins no BreakTest DB version'
+    DEFAULT_STORE_IMAGE="${BREAKTEST_IMAGE_REGISTRY:-breakingit}/breaktest-db:${store_version}"
+else
+    DEFAULT_STORE_IMAGE="breaktest-db:${BREAKTEST_DB_IMAGE_TAG:-local}"
+fi
+STORE_IMAGE=${BREAKTEST_DB_IMAGE:-$DEFAULT_STORE_IMAGE}
+
+# Reads every row of each monitoring segment in the archive against its sealed
+# fingerprint, in the archive (/backup) or as it now exists in the volume (/data).
+# A volume dataset with another catalog was kept apart by the restore and is not
+# checked; one with the archive's catalog must hold every archived segment.
+verify_monitoring() {
+    local where=$1
+    docker run --rm --user 1000:1000 --entrypoint sh \
+        -v "$VOLUME":/data:ro -v "$WORK/runs":/backup:ro "$STORE_IMAGE" -c '
+            for segment in /backup/.monitoring/*/segments/*/; do
+                [ -d "$segment" ] || continue
+                target=$1${segment#/backup}
+                tenant=${segment%/segments/*}
+                # Only a catalog that is readable and different marks a dataset kept apart.
+                cmp -s "$tenant/native.json" "$1${tenant#/backup}/native.json"
+                case $? in
+                    0) ;;
+                    1) continue ;;
+                    *) echo "unreadable monitoring catalog: $1${tenant#/backup}" >&2; exit 1 ;;
+                esac
+                breaktest-db monitor-segment verify "$target" >/dev/null || {
+                    echo "damaged monitoring segment: $target" >&2
+                    exit 1
+                }
+            done' sh "$where" || die "Synthetic Monitoring data in $where failed verification"
+}
 
 member=$(tar -tf "$ARCHIVE" | grep '/breaktest_db_data\.tar$' || true)
 [[ -n $member ]] || die 'this backup contains no BreakTest DB data'
@@ -64,9 +103,17 @@ else
 fi
 # The store runs as 1000:1000; a volume created here starts out owned by root.
 docker run --rm -v "$VOLUME":/data alpine:latest chown 1000:1000 /data
+# A damaged archive must not be published: verify it before anything is copied.
+if [[ -d $WORK/runs/.monitoring ]]; then
+    verify_monitoring /backup
+fi
 # Uses the restore code shipped in the backend image (see IMAGE above). The
 # store discovers published directories itself.
 docker run --rm --user 1000:1000 --entrypoint /breaktest-backend-api \
     -v "$VOLUME":/data -v "$WORK/runs":/backup:ro "$IMAGE" \
     --restore-breaktest-db /backup /data
+# A dataset reported as identical is only as good as what the volume holds.
+if [[ -d $WORK/runs/.monitoring ]]; then
+    verify_monitoring /data
+fi
 printf 'BreakTest DB restore completed into %s\n' "$VOLUME"

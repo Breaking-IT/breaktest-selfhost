@@ -2,6 +2,14 @@
   "schema_version": 1,
   "releases": [
     {
+      "version": "26.11.4",
+      "date": "2026-11-24",
+      "source_commit": "812f0c703a15d3baa4509fb4b3cb0c8996a0e658",
+      "previous_version": "26.11.3",
+      "previous_source_commit": "65d6f95ab29631fba083b82fd00f0f24607badbb",
+      "notes": "### Synthetic Monitoring\n\n- Editing a monitor just after its results appear now lets the next run execute the updated script once the previous run finishes.\n- View one- and two-year trends with daily chart points. Customers using BreakTest DB can set separate retention periods for raw samples and error details while keeping execution history and hourly aggregates.\n- Store monitoring executions, samples, errors and screenshots in BreakTest DB. Dashboards, Grafana queries and alerts follow the customer's selected monitoring store. Full backup and restore include native monitoring history.\n\n### Load tests and AWS generators\n\n- Historical JMeter JVM and generator charts load faster, and finalized runs copy to BreakTest DB more quickly. The migration tool also supports eligible k6 HTTP and browser runs and can copy all configured customers in one invocation.\n- The AWS picker includes available C9g, M9g and R9g Graviton5 sizes and batches pricing requests to reduce throttling. New EC2 generators provisioned from affected older AMIs receive a launcher fix for repeated container restarts. Existing instances in a restart loop need a launcher repair or replacement.\n\n### Licensing\n\n- Fix installation and customer license activation when a proxy normalizes the signed request path. Previously the UI could report that the license server was unreachable even after successful pairing.\n\n### Self-host upgrade and migration\n\n- Upgrade the backend and BreakTest DB readers before deploying updated JMeter writers or running new migrations. Older readers cannot decode newly packed JVM blocks. Customer schema migration 50 adds packed JVM samples and a resumable background backfill for finalized TimescaleDB runs. Use the `runtime_metrics_read` view for SQL queries spanning old and new samples.\n- Whole-customer copies now include Synthetic Monitoring. If load tests were already migrated, use `./migrate_customer.sh update-sm --customer CUSTOMER_ID` to catch up. Copying alone preserves routing. Before using `--activate`, take a full backup, pause schedules, drain producers and let the last imported UTC hour close. Resume schedules after activation. New executions are stored only in BreakTest DB and cannot be copied back to TimescaleDB.\n- If an earlier migration produced time-shifted aggregate charts, keep the affected runs on TimescaleDB until their bundles are rebuilt from source with the updated copier. Reverification alone preserves the old timestamps."
+    },
+    {
       "version": "26.11.3",
       "date": "2026-11-14",
       "source_commit": "65d6f95ab29631fba083b82fd00f0f24607badbb",

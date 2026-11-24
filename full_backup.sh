@@ -243,6 +243,24 @@ backup_grafana() {
     [[ -s $output_file ]] || die 'Grafana backup is empty'
 }
 
+# The archive is written with Python. The BreakTest DB image on this host ships it,
+# so an installation without registry access needs no further image.
+breaktest_db_backup_image() {
+    local container image
+    if [[ -n ${BREAKTEST_DB_BACKUP_IMAGE:-} ]]; then
+        printf '%s' "$BREAKTEST_DB_BACKUP_IMAGE"
+        return 0
+    fi
+    if [[ ${#DOCKER_COMPOSE[@]} -gt 0 ]]; then
+        container=$("${DOCKER_COMPOSE[@]}" "${COMPOSE_ARGS[@]}" ps -a -q breaktest-db 2>/dev/null | head -n 1)
+    else
+        container=${BREAKTEST_CONTAINER_PREFIX:-}breaktest-db
+    fi
+    image=''
+    [[ -z $container ]] || image=$(docker inspect --format '{{.Image}}' "$container" 2>/dev/null) || image=''
+    printf '%s' "${image:-python:3.13-slim}"
+}
+
 # Sealed BreakTest DB bundles are immutable; a live run is copied from its last
 # checkpoint files and reopens with the store's normal restart recovery.
 backup_breaktest_db() {
@@ -255,9 +273,34 @@ backup_breaktest_db() {
     fi
     log 'Backing up BreakTest DB results'
     # Bundles are already zstd-compressed; do not compress them again.
-    docker run --rm --log-driver=none -v "$volume_name":/source:ro alpine:latest \
-        tar cf - -C /source --exclude='./.incoming-*' --exclude='./.deleted-*' . >"$output_file" 2>/dev/null \
-        || die 'BreakTest DB backup failed'
+    docker run --rm -i --log-driver=none -v "$volume_name":/source:ro --entrypoint python3 \
+        "$(breaktest_db_backup_image)" - >"$output_file" <<'PYBACKUP' || die 'BreakTest DB backup failed'
+import fcntl, io, json, sys, tarfile
+from pathlib import Path
+root = Path('/source')
+with tarfile.open(fileobj=sys.stdout.buffer, mode='w|') as archive:
+    for top in root.iterdir():
+        if top.name != '.monitoring' and not top.name.startswith(('.incoming-', '.deleted-')):
+            archive.add(top, './'+top.name)
+    for t in (root/'.monitoring').glob('*'):
+        prefix = './.monitoring/'+t.name+'/'
+        if (t/'native.json').is_file():
+            # Pin immutable extents while writers may publish newer catalogs.
+            with (t/'.sweep.lock').open('rb') as lock:
+                fcntl.flock(lock, fcntl.LOCK_SH)
+                data = (t/'native.json').read_bytes()
+                catalog = json.loads(data)
+                if catalog['version'] != 2 or catalog['customer_id'] != t.name:
+                    raise ValueError('invalid monitoring catalog')
+                marker = tarfile.TarInfo(prefix+'native.json')
+                marker.size = len(data)
+                archive.addfile(marker, io.BytesIO(data))
+                ids = {k for periods in catalog['parts'].values() for parts in periods.values() for k in parts}
+                for k in sorted(ids):
+                    if len(k)!=32 or any(c not in '0123456789abcdef' for c in k):
+                        raise ValueError('invalid monitoring segment')
+                    archive.add(t/'segments'/k, prefix+'segments/'+k)
+PYBACKUP
     [[ -s $output_file ]] || die 'BreakTest DB backup is empty'
 }
 

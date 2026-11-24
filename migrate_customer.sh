@@ -5,12 +5,21 @@ cd "$(dirname "$0")"
 if [[ $# == 0 || ${1:-} == --help || ${1:-} == -h ]]; then
   cat <<'HELP'
 Usage: ./migrate_customer.sh plan --customer CUSTOMER_ID [--test TEST_ID ...]
-       ./migrate_customer.sh copy --customer CUSTOMER_ID [--test TEST_ID ...]
+       ./migrate_customer.sh copy --customer CUSTOMER_ID_OR_ALL
+              [--test TEST_ID ...] [--continue-on-error] [--reverify-existing] [--copy-legacy-monitoring] [--activate]
+       ./migrate_customer.sh update-sm --customer CUSTOMER_ID [--activate]
+       ./migrate_customer.sh compact-jvm --customer CUSTOMER_ID [--test TEST_ID ...]
        ./migrate_customer.sh switch --customer CUSTOMER_ID --backend timescaledb|breaktest-db [--test TEST_ID ...]
 
 Copy installs verified bundles and enables selection through the customer setting.
 It does not change that setting, original test routing, or TimescaleDB data.
-Run plan first. Finalized BreakTest/JMeter tests can include expired raw data; retained summaries are preserved.
+Run plan first. Finalized BreakTest, JMeter and k6 tests can include expired raw data; retained summaries are preserved.
+Use --customer all to copy every configured TimescaleDB customer, one test at a time.
+Whole-customer copy processes load tests first, then Synthetic Monitoring.
+Use --test with one customer ID to copy only those load tests.
+Use update-sm to add monitoring to an earlier load-test migration.
+Add --activate to a whole-customer copy or update-sm to select native monitoring.
+Verified installed copies are skipped unless --reverify-existing is set.
 Stop retention/deletion of selected source tests while copying.
 
 Uses config.env, version.env and the running backend/BreakTest DB containers.
@@ -26,10 +35,15 @@ fi
 project=${PROJECT_NAME:-$(set +u; . ./config.env >/dev/null 2>&1; printf '%s' "${BREAKTEST_COMPOSE_PROJECT_NAME:-breaktest}")}
 compose=(docker compose --env-file version.env --env-file config.env -f docker-compose.yaml -p "$project")
 backend=$("${compose[@]}" ps -q backend)
-store=$("${compose[@]}" --profile breaktest-db ps -q breaktest-db)
-[[ -n $backend && -n $store && $backend != *$'\n'* && $store != *$'\n'* ]] || {
-  echo 'Exactly one running backend and BreakTest DB service are required. Enable/start BreakTest DB first.' >&2; exit 1;
-}
+[[ -n $backend && $backend != *$'\n'* ]] || { echo 'Exactly one running backend is required.' >&2; exit 1; }
+store_args=()
+store_mount=()
+if [[ $1 != compact-jvm ]]; then
+  store=$("${compose[@]}" --profile breaktest-db ps -q breaktest-db)
+  [[ -n $store && $store != *$'\n'* ]] || { echo 'Exactly one running BreakTest DB service is required.' >&2; exit 1; }
+  store_args=(--store-container "$store")
+  store_mount=(--volumes-from "$store:rw")
+fi
 work=${MIGRATION_WORK_DIR:-"$PWD/migration-work"}
 mkdir -p "$work"
 # -m only applies to a newly created directory; work files contain customer data.
@@ -37,9 +51,9 @@ chmod 700 "$work" || { echo "Cannot make $work private (chmod 700); choose a dir
 work=$(cd "$work" && pwd -P)
 # Rebuilding uses the packaged sources and Docker cache, never private Git access.
 docker build -q -t breaktest-customer-migration:local migration >/dev/null
-exec docker run --rm -i --network "container:$backend" \
-  --volumes-from "$store:rw" \
+exec docker run --rm --network "container:$backend" \
+  "${store_mount[@]}" \
   --mount type=bind,src=/var/run/docker.sock,dst=/var/run/docker.sock \
   --mount "type=bind,src=$work,dst=$work" \
   breaktest-customer-migration:local \
-  --backend-container "$backend" --store-container "$store" --work-root "$work" "$@"
+  --backend-container "$backend" "${store_args[@]}" --work-root "$work" "$@"
