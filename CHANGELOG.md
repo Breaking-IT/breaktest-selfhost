@@ -2,6 +2,23 @@
 
 Historical releases before this release history was introduced may not have notes.
 
+## 26.11.5 — 2026-11-25
+
+### Synthetic monitoring
+
+- The Rust agent reuses unchanged scenario files between runs. Agent execution failures now mark monitors as failed, and reconnecting agents preserve completed results.
+- TimescaleDB calculates monitor summaries within the run window, with allowance for generator clock skew. Average transaction response time remains available to alerts after raw samples expire.
+- Generator metrics report container memory usage excluding inactive file cache. Synthetic run starts and completions no longer trigger extra generator health updates.
+
+### Load tests
+
+- Multi-generator tests prepare shared scripts and attachments once. The console shows how many generators have responded during startup.
+- TimescaleDB finalization processes summaries in batches and shows completed batches in the console. Transient database lock conflicts retry the affected step, and background compression yields to queued finalizations.
+
+### Rolling upgrades
+
+Upgrade BreakTest DB first, then the backend, then the Rust load generators. This order ensures that the monitoring store and backend can record agent-reported failures throughout the rollout.
+
 ## 26.11.4 — 2026-11-24
 
 ### Synthetic Monitoring
