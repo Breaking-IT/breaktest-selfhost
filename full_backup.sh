@@ -280,7 +280,8 @@ from pathlib import Path
 root = Path('/source')
 with tarfile.open(fileobj=sys.stdout.buffer, mode='w|') as archive:
     for top in root.iterdir():
-        if top.name != '.monitoring' and not top.name.startswith(('.incoming-', '.deleted-')):
+        # Host metrics are telemetry whose segments are merged while the store runs.
+        if top.name not in ('.monitoring', '.host-metrics') and not top.name.startswith(('.incoming-', '.deleted-')):
             archive.add(top, './'+top.name)
     for t in (root/'.monitoring').glob('*'):
         prefix = './.monitoring/'+t.name+'/'
@@ -309,7 +310,19 @@ breaktest_db_volume_bytes() {
     if [[ -z ${BREAKTEST_DB_DATA_PATH:-} ]]; then
         docker volume inspect "$volume_name" >/dev/null 2>&1 || { printf '0\n'; return 0; }
     fi
-    kib=$(docker run --rm --log-driver=none -v "$volume_name":/source:ro alpine:latest du -sk /source 2>/dev/null | awk '{ print $1 }')
+    # Size what the archive holds: host metrics are not part of it, so they are
+    # not walked. A walk that fails must fail the preflight instead of yielding
+    # a partial size.
+    kib=$(docker run --rm --log-driver=none -v "$volume_name":/source:ro alpine:latest sh -c '
+        set -e
+        size=0
+        for entry in /source/* /source/.[!.]* /source/..?*; do
+            [ -e "$entry" ] || [ -L "$entry" ] || continue
+            [ "$entry" = /source/.host-metrics ] && continue
+            walked=$(du -sk "$entry")
+            size=$(( size + ${walked%%[!0-9]*} ))
+        done
+        echo "$size"' 2>/dev/null) || return 1
     [[ $kib =~ ^[0-9]+$ ]] || return 1
     printf '%s\n' "$((kib * 1024))"
 }

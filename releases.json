@@ -2,6 +2,14 @@
   "schema_version": 1,
   "releases": [
     {
+      "version": "26.11.6",
+      "date": "2026-11-26",
+      "source_commit": "76e37977449d1282bc110e7e2508b6d8c9bdea02",
+      "previous_version": "26.11.5",
+      "previous_source_commit": "151ee1942508a95e2de5407a4e76e531a7deebed",
+      "notes": "### System Monitoring\n\n- A new System Monitoring page for SuperAdmins shows generator CPU, memory, network and disk, and the CPU and memory of their containers, with charts and a generator table. It is available when BreakTest DB is enabled (`BREAKTEST_DB_ENABLED=true`), which stores the host metrics generators report.\n- Charts show the 25 busiest series and the fleet average for the rest. Ranges run from 30 minutes to 1 year, plus a custom from/to. Drag on a chart to zoom, double-click to reset, and press V for a large view (Esc closes it).\n- Ranges longer than a day load quickly: completed days are summarised per hour.\n- On first start, the backend copies the existing host metrics history from TimescaleDB into BreakTest DB in the background. It only reads TimescaleDB, resumes after a restart, and finishes once. A year of history from one generator took about 10 minutes.\n- The Grafana dashboard keeps working: host metrics are still written to TimescaleDB as well.\n\n### Synthetic monitoring\n\n- Workload containers keep the same name for every run of a monitor (`{engine}-monitor-{generator}-{scenario}`), and load test containers start with their engine name. Container charts therefore no longer add a series for every run.\n- A monitor's launch safely removes its own earlier container that still holds the name. It is refused, rather than run twice, when the name is held by something it cannot identify or remove, or when a scenario switches between k6 and JMeter and the other engine's container cannot be removed.\n\n### Configuration\n\n- `HOST_METRICS_RETENTION_DAYS` sets how many days of host metrics BreakTest DB keeps. The default, 0, keeps them indefinitely.\n- `full_backup.sh` leaves host metrics out of the backup and its size estimate. They can be copied again from TimescaleDB while it is still installed.\n\n### Upgrade order\n\nUpgrade BreakTest DB first, then the backend, then the load generators. The backend's history copy needs the new BreakTest DB."
+    },
+    {
       "version": "26.11.5",
       "date": "2026-11-25",
       "source_commit": "151ee1942508a95e2de5407a4e76e531a7deebed",

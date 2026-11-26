@@ -104,6 +104,13 @@ def eligible(t):
     return (t.get('engine','breaktest') in ('breaktest','jmeter','k6') and t.get('status') in (None,'stopped','finished','completed') and t.get('endTime') is not None and t.get('max_vus') is not None and t.get('total_errors') is not None)
 def copy_eligible(t):
     return eligible(t) and t.get('resultsStorageBackend','timescaledb') == 'timescaledb'
+def skip_reason(t):
+    """Why a TimescaleDB test is left out of a copy, and whether waiting could change that."""
+    if t.get('status') not in (None, 'stopped', 'finished', 'completed') or t.get('endTime') is None:
+        return 'not finalized', True
+    if t.get('engine', 'breaktest') not in ('breaktest', 'jmeter', 'k6'):
+        return 'unsupported engine', False
+    return 'finalized without a stored summary', False
 def routing(t):return {k:t[k] for k in ROUTING if k in t}
 def guard(t):return {k:t[k] if k in t else {'$exists':False} for k in ('_id','customer_id','runId','status','endTime',*ROUTING)}
 def fields(row):
@@ -528,6 +535,9 @@ def run_customer(a, db):
         return
     work=a.work_dir.resolve();work.mkdir(parents=True,exist_ok=True)
     candidates=[t for t in tests if copy_eligible(t)]
+    # A whole-customer copy names what it leaves behind instead of omitting it silently.
+    left_out = [(t, *skip_reason(t)) for t in tests
+                if not copy_eligible(t) and t.get('resultsStorageBackend', 'timescaledb') == 'timescaledb']
     if a.test and len(candidates)!=len(tests):raise ValueError('Selected tests must be finalized TimescaleDB tests')
     configs=list(db.timescaledb.find({'customer_id':customer}))
     if len(configs)!=1:raise ValueError('Expected one unambiguous customer TimescaleDB configuration')
@@ -542,8 +552,13 @@ def run_customer(a, db):
             totals['failed'] += 1
             print(f"{test['_id']}: {failure_message(exc)}", file=sys.stderr, flush=True)
     if getattr(a, 'continue_on_error', False):
+        for t, reason, _ in left_out:
+            print(f"{t['_id']}: not copied ({reason})", file=sys.stderr, flush=True)
         print(f"{customer}: {totals['copied']} copied, {totals['already_verified']} already verified, "
-              f"{totals['empty']} empty, {totals['failed']} failed", flush=True)
+              f"{totals['empty']} empty, {totals['failed']} failed, {len(left_out)} not copied", flush=True)
+    stranded = sum(1 for _, _, may_change in left_out if not may_change)
+    if getattr(a, 'everything', False) and stranded and not totals['failed']:
+        raise ValueError(f"{stranded} finished tests cannot be copied for customer {customer}")
     if totals['failed']:
         raise ValueError(f"{totals['failed']} test copies failed for customer {customer}")
 

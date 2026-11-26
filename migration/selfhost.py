@@ -138,6 +138,9 @@ def run(argv=None):
     cli.add_argument('--continue-on-error', action='store_true')
     cli.add_argument('--reverify-existing', action='store_true')
     cli.add_argument('--copy-legacy-monitoring', action='store_true')
+    cli.add_argument('--all', action='store_true', dest='everything',
+                     help='Copy everything a customer has: every finalized test with its generator monitoring, '
+                          'converting shared samples where a test has none of its own, then Synthetic Monitoring')
     cli.add_argument('--activate', action='store_true', help='Select the verified Synthetic Monitoring snapshot for reads and new writes')
     a = cli.parse_args(args)
     if a.command == 'update-sm' and a.test:
@@ -152,6 +155,11 @@ def run(argv=None):
     customers = [] if all_customers else list(dict.fromkeys(str(ObjectId(value)) for value in a.customer))
     if len(customers) > 1 and (a.command != 'copy' or a.test):
         cli.error('Multiple customers require copy without --test')
+    if a.everything:
+        if a.command != 'copy' or a.test:
+            cli.error('--all copies a whole customer and requires copy without --test')
+        # One test that cannot be copied must not keep the rest of the customer behind.
+        a.copy_legacy_monitoring = a.continue_on_error = True
     if a.command != 'copy' and (a.continue_on_error or a.reverify_existing or a.copy_legacy_monitoring):
         cli.error('Copy options require the copy command')
     batch = all_customers or len(customers) > 1

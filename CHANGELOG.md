@@ -2,6 +2,30 @@
 
 Historical releases before this release history was introduced may not have notes.
 
+## 26.11.6 — 2026-11-26
+
+### System Monitoring
+
+- A new System Monitoring page for SuperAdmins shows generator CPU, memory, network and disk, and the CPU and memory of their containers, with charts and a generator table. It is available when BreakTest DB is enabled (`BREAKTEST_DB_ENABLED=true`), which stores the host metrics generators report.
+- Charts show the 25 busiest series and the fleet average for the rest. Ranges run from 30 minutes to 1 year, plus a custom from/to. Drag on a chart to zoom, double-click to reset, and press V for a large view (Esc closes it).
+- Ranges longer than a day load quickly: completed days are summarised per hour.
+- On first start, the backend copies the existing host metrics history from TimescaleDB into BreakTest DB in the background. It only reads TimescaleDB, resumes after a restart, and finishes once. A year of history from one generator took about 10 minutes.
+- The Grafana dashboard keeps working: host metrics are still written to TimescaleDB as well.
+
+### Synthetic monitoring
+
+- Workload containers keep the same name for every run of a monitor (`{engine}-monitor-{generator}-{scenario}`), and load test containers start with their engine name. Container charts therefore no longer add a series for every run.
+- A monitor's launch safely removes its own earlier container that still holds the name. It is refused, rather than run twice, when the name is held by something it cannot identify or remove, or when a scenario switches between k6 and JMeter and the other engine's container cannot be removed.
+
+### Configuration
+
+- `HOST_METRICS_RETENTION_DAYS` sets how many days of host metrics BreakTest DB keeps. The default, 0, keeps them indefinitely.
+- `full_backup.sh` leaves host metrics out of the backup and its size estimate. They can be copied again from TimescaleDB while it is still installed.
+
+### Upgrade order
+
+Upgrade BreakTest DB first, then the backend, then the load generators. The backend's history copy needs the new BreakTest DB.
+
 ## 26.11.5 — 2026-11-25
 
 ### Synthetic monitoring

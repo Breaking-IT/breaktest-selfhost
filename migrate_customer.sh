@@ -6,7 +6,7 @@ if [[ $# == 0 || ${1:-} == --help || ${1:-} == -h ]]; then
   cat <<'HELP'
 Usage: ./migrate_customer.sh plan --customer CUSTOMER_ID [--test TEST_ID ...]
        ./migrate_customer.sh copy --customer CUSTOMER_ID_OR_ALL
-              [--test TEST_ID ...] [--continue-on-error] [--reverify-existing] [--copy-legacy-monitoring] [--activate]
+              [--all] [--test TEST_ID ...] [--continue-on-error] [--reverify-existing] [--copy-legacy-monitoring] [--activate]
        ./migrate_customer.sh update-sm --customer CUSTOMER_ID [--activate]
        ./migrate_customer.sh compact-jvm --customer CUSTOMER_ID [--test TEST_ID ...]
        ./migrate_customer.sh switch --customer CUSTOMER_ID --backend timescaledb|breaktest-db [--test TEST_ID ...]
@@ -16,6 +16,9 @@ It does not change that setting, original test routing, or TimescaleDB data.
 Run plan first. Finalized BreakTest, JMeter and k6 tests can include expired raw data; retained summaries are preserved.
 Use --customer all to copy every configured TimescaleDB customer, one test at a time.
 Whole-customer copy processes load tests first, then Synthetic Monitoring.
+Add --all to copy everything a customer has in one run: every finalized test with its
+generator monitoring, including shared samples for tests that have none of their own,
+then Synthetic Monitoring. It continues past a test that cannot be copied and reports it.
 Use --test with one customer ID to copy only those load tests.
 Use update-sm to add monitoring to an earlier load-test migration.
 Add --activate to a whole-customer copy or update-sm to select native monitoring.

@@ -5,11 +5,25 @@ From the self-host installation directory:
 ```sh
 ./migrate_customer.sh plan --customer CUSTOMER_ID
 ./migrate_customer.sh copy --customer CUSTOMER_ID --test TEST_ID
-# Copy all eligible finalized tests, then Synthetic Monitoring.
+# Copy everything the customer has: tests with their generator monitoring, then Synthetic Monitoring.
+./migrate_customer.sh copy --customer CUSTOMER_ID --all
+# The same without converting shared generator monitoring; stops at the first test that fails.
 ./migrate_customer.sh copy --customer CUSTOMER_ID
 # Copy all customers with a TimescaleDB configuration. Reuse after interruption.
 ./migrate_customer.sh copy --customer all
 ```
+
+`--all` is the whole-customer copy with `--copy-legacy-monitoring` and
+`--continue-on-error`: a test that cannot be copied is reported and the rest of the
+customer, including Synthetic Monitoring, is still copied. The command exits
+nonzero if any test failed. It works with `--customer all` and does not activate
+Synthetic Monitoring; add `--activate` for that. Running, unfinalized and empty
+tests are skipped as in any copy.
+
+Every TimescaleDB test that is left out is listed with its reason, and the
+summary line counts them. A test that is still running is only reported. A
+finished test that can never be copied, for example one without a stored
+summary, makes `--all` exit nonzero.
 
 Use `./migrate_customer.sh update-sm --customer CUSTOMER_ID` for a monitoring-only catch-up.
 The customer ID is in the customer edit URL. `--test` is repeatable. `plan` checks
